@@ -14,12 +14,14 @@
 .PARAMETER PlanOnly    ดูว่าจะทำอะไรโดยไม่เปลี่ยนแปลงอะไรเลย (what-if)
 .PARAMETER Yes         ข้ามคำถามยืนยัน (สำหรับรันอัตโนมัติ) ยังพิมพ์สรุปให้เห็นเสมอ
 .PARAMETER Part        All (ค่าเริ่มต้น) | Infra = เฉพาะโครงสร้าง | Code = ส่งเฉพาะโค้ด Function (ใช้หลังแก้โค้ด)
+.PARAMETER Set         กำหนดหรือทับค่าใน config จากบรรทัดคำสั่ง เช่น -Set @{ MailEnabled = $true } (ไม่ถูกบันทึกลงไฟล์)
 
 .EXAMPLE
   ./scripts/deploy.ps1 -PlanOnly          # ดูก่อน ไม่แก้อะไร
   ./scripts/deploy.ps1                    # deploy จริง (มีถามยืนยัน)
   ./scripts/deploy.ps1 -Part Code         # แก้โค้ดแล้วส่งซ้ำ
   ./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1
+  ./scripts/deploy.ps1 -Set @{ ResourceGroup = 'rg-lab'; MailEnabled = $false }   # ทับบางค่า
 
 ต้องมี: PowerShell 5.1 หรือ 7+, Azure CLI (az) ที่ login แล้ว, สิทธิ์ Contributor บน RG
         (และ Owner / User Access Administrator ที่ subscription ถ้า AssignSubscriptionReader = $true)
@@ -29,7 +31,8 @@ param(
   [string]$ConfigPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'config/deploy.config.psd1'),
   [switch]$PlanOnly,
   [switch]$Yes,
-  [ValidateSet('All', 'Infra', 'Code')] [string]$Part = 'All'
+  [ValidateSet('All', 'Infra', 'Code')] [string]$Part = 'All',
+  [hashtable]$Set = @{}
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -41,10 +44,15 @@ function Warn($m) { Write-Host "    ! $m" -ForegroundColor Yellow }
 
 # ---------- 1) อ่านและตรวจ config ----------
 Step "อ่าน config: $ConfigPath"
-if (-not (Test-Path $ConfigPath)) {
+if (Test-Path $ConfigPath) {
+  $cfg = Import-PowerShellDataFile -Path $ConfigPath   # อ่านเป็นข้อมูลล้วน ไม่รันโค้ดในไฟล์
+} elseif ($Set.Count -gt 0) {
+  Info 'ไม่พบไฟล์ config จะใช้เฉพาะค่าจาก -Set'
+  $cfg = @{}
+} else {
   Fail "ไม่พบไฟล์ config`n    สร้างจากตัวอย่าง:  Copy-Item config/deploy.config.example.psd1 config/deploy.config.psd1`n    แล้วแก้ค่าในไฟล์ใหม่ (ไฟล์จริงถูก .gitignore กันไว้ ไม่ถูก push)"
 }
-$cfg = Import-PowerShellDataFile -Path $ConfigPath   # อ่านเป็นข้อมูลล้วน ไม่รันโค้ดในไฟล์
+foreach ($k in $Set.Keys) { $cfg[$k] = $Set[$k] }   # ค่าจากบรรทัดคำสั่งมาก่อนค่าในไฟล์
 
 $known = @('SubscriptionId', 'ResourceGroup', 'Location', 'ResourceGroupTags', 'NamePrefix', 'PolicyAssignmentName',
   'ScanSubscriptionIds', 'RgNameRegex', 'SlaDays', 'MailEnabled', 'MailTo', 'MailCc', 'MailCcEscalation',
@@ -119,12 +127,14 @@ if ($rgExists) {
   $existing | Select-Object -First 15 | ForEach-Object { Info "  - $($_.n)   [$($_.t)]" }
   if ($existing.Count -gt 15) { Info "  ... และอีก $($existing.Count - 15) รายการ" }
   Warn 'จะ deploy resource ของโปรเจกต์นี้เพิ่ม/อัปเดตลงใน RG นี้ (ไม่ลบ ไม่แก้ resource อื่น และไม่แก้ tag/region ของ RG)'
+  if ($tags.Count) { Warn 'ResourceGroupTags ใน config ใช้เฉพาะ RG ใหม่ จึงไม่ถูกนำไปใช้กับ RG ที่มีอยู่แล้ว (tag เดิมของ RG ไม่เปลี่ยน)' }
 } else {
   Info "RG '$rg' ยังไม่มี -> จะสร้างใหม่ที่ $location"
   if ($tags.Count) { Info "tag ที่จะใส่ให้ RG: $($tags -join ', ')" } else { Warn 'ไม่ได้ตั้ง ResourceGroupTags (ถ้า Policy ของคุณบังคับ tag บน RG ตัว RG นี้จะไม่ผ่านเอง ดู config)' }
 }
 
 Step 'สรุปสิ่งที่จะทำ'
+if ($Set.Count) { Info "ค่าจาก -Set:      $(($Set.Keys | Sort-Object) -join ', ') (ทับค่าใน config)" }
 Info "ส่วนที่ deploy:   $Part"
 Info "ส่งเมลจริง:       $(if ($mailEnabled) { 'ใช่' } else { 'ไม่ (เก็บ snapshot อย่างเดียว)' })"
 Info "To:               $($mailTo -join ', ')"
@@ -238,7 +248,7 @@ try {
    az functionapp config appsettings set -g $rg -n $funcName --settings TG_HTTP_ENABLED=false -o none
 
 3) เปิด Workbook: Azure Portal > Monitor > Workbooks > Shared > "Tag Governance"
-4) เมื่อพร้อมส่งเมลจริง: MailEnabled = `$true ใน config แล้วรัน  ./scripts/deploy.ps1 -Part Infra
+4) เมื่อพร้อมส่งเมลจริง: ตั้ง MailEnabled = `$true ใน config แล้วรัน  ./scripts/deploy.ps1 -Part Infra
 "@
 }
 finally {
