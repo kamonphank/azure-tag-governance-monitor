@@ -1,0 +1,349 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Tag Governance — รายการที่ยังไม่ผ่าน\nข้อมูลดึงสดจาก Azure Policy (assignment `rg-tag-governance-audit`) ทุกครั้งที่เปิดหน้านี้ · เลือก Subscription ด้านล่าง · ผล Policy อาจช้าราว 1 วันหลังมีการแก้ tag"
+      },
+      "name": "text - title"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "00ffa1ff-37ea-4cc9-b053-f651df60248d",
+            "version": "KqlParameterItem/1.0",
+            "name": "Subscription",
+            "label": "Subscription",
+            "type": 6,
+            "isRequired": true,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "typeSettings": {
+              "additionalResourceOptions": [
+                "value::all"
+              ],
+              "includeAll": true
+            },
+            "timeContext": {
+              "durationMs": 86400000
+            },
+            "defaultValue": "value::all"
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.resourcegraph/resources"
+      },
+      "name": "parameters - sub"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "policyresources\n| where type == \"microsoft.policyinsights/policystates\"\n| where tolower(tostring(properties.policyAssignmentId)) endswith \"/providers/microsoft.authorization/policyassignments/rg-tag-governance-audit\"\n| where tostring(properties.complianceState) == \"NonCompliant\"\n| extend resource_kind = iff(tostring(properties.resourceType) contains \"resourcegroups\", \"Resource Group\", \"Virtual Machine\")\n| extend rid = tolower(tostring(properties.resourceId))\n| summarize total = dcount(rid), rg = dcountif(rid, resource_kind == \"Resource Group\"), vm = dcountif(rid, resource_kind == \"Virtual Machine\")\n| extend p = pack_array(pack(\"k\", \"ไม่ผ่านรวม\", \"n\", total), pack(\"k\", \"Resource Group\", \"n\", rg), pack(\"k\", \"Virtual Machine\", \"n\", vm))\n| mv-expand p\n| project resource_kind = tostring(p.k), n = toint(p.n)",
+        "size": 4,
+        "title": "จำนวนที่ไม่ผ่าน (นับเป็น resource)",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [
+          "{Subscription}"
+        ],
+        "visualization": "tiles",
+        "tileSettings": {
+          "showBorder": true,
+          "titleContent": {
+            "columnMatch": "resource_kind",
+            "formatter": 1
+          },
+          "leftContent": {
+            "columnMatch": "n",
+            "formatter": 12,
+            "formatOptions": {
+              "palette": "orange"
+            },
+            "numberFormat": {
+              "unit": 17,
+              "options": {
+                "maximumFractionDigits": 0
+              }
+            }
+          }
+        }
+      },
+      "name": "query - tiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "policyresources\n| where type == \"microsoft.policyinsights/policystates\"\n| where tolower(tostring(properties.policyAssignmentId)) endswith \"/providers/microsoft.authorization/policyassignments/rg-tag-governance-audit\"\n| where tostring(properties.complianceState) == \"NonCompliant\"\n| where tostring(properties.resourceType) =~ \"microsoft.resources/subscriptions/resourcegroups\"\n| extend resource_id = tolower(tostring(properties.resourceId)), policy = tostring(properties.policyDefinitionReferenceId)\n| summarize failed_policies = make_set(policy) by resource_id\n| join kind=leftouter (resourcecontainers | where type =~ \"microsoft.resources/subscriptions/resourcegroups\" | project resource_id = tolower(id), rg_name = name, rg_tags = tags) on resource_id\n| extend t = todynamic(tostring(rg_tags))\n| extend owner_value = tostring(t.owner)\n| extend cause = case(isempty(tostring(rg_tags)) or tostring(rg_tags) == \"{}\", \"ไม่มี tag เลย\", owner_value =~ \"nan\", \"owner = nan\", isempty(owner_value), \"ไม่มี owner tag\", tostring(failed_policies) contains \"owner\", \"owner รูปแบบผิด\", \"tag อื่นไม่ครบ\")\n| extend who = case(cause == \"owner รูปแบบผิด\" or cause == \"tag อื่นไม่ครบ\", \"Cloud team แก้ได้\", \"ต้องหา owner / ยืนยัน\")\n| summarize RG = count() by cause\n| order by RG desc",
+        "size": 1,
+        "title": "Resource Group แยกตามสาเหตุ",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [
+          "{Subscription}"
+        ],
+        "visualization": "piechart"
+      },
+      "name": "query - bar"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Resource Group ที่ไม่ผ่าน และใครต้องแก้"
+      },
+      "name": "text - rg"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "policyresources\n| where type == \"microsoft.policyinsights/policystates\"\n| where tolower(tostring(properties.policyAssignmentId)) endswith \"/providers/microsoft.authorization/policyassignments/rg-tag-governance-audit\"\n| where tostring(properties.complianceState) == \"NonCompliant\"\n| where tostring(properties.resourceType) =~ \"microsoft.resources/subscriptions/resourcegroups\"\n| extend resource_id = tolower(tostring(properties.resourceId)), policy = tostring(properties.policyDefinitionReferenceId)\n| summarize failed_policies = make_set(policy) by resource_id\n| join kind=leftouter (resourcecontainers | where type =~ \"microsoft.resources/subscriptions/resourcegroups\" | project resource_id = tolower(id), rg_name = name, rg_tags = tags) on resource_id\n| extend t = todynamic(tostring(rg_tags))\n| extend owner_value = tostring(t.owner)\n| extend cause = case(isempty(tostring(rg_tags)) or tostring(rg_tags) == \"{}\", \"ไม่มี tag เลย\", owner_value =~ \"nan\", \"owner = nan\", isempty(owner_value), \"ไม่มี owner tag\", tostring(failed_policies) contains \"owner\", \"owner รูปแบบผิด\", \"tag อื่นไม่ครบ\")\n| extend who = case(cause == \"owner รูปแบบผิด\" or cause == \"tag อื่นไม่ครบ\", \"Cloud team แก้ได้\", \"ต้องหา owner / ยืนยัน\")\n| project rg_name, cause, owner_value, who\n| order by cause asc, rg_name asc",
+        "title": "Resource Group",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [
+          "{Subscription}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "labelSettings": [
+            {
+              "columnId": "rg_name",
+              "label": "RG"
+            },
+            {
+              "columnId": "cause",
+              "label": "สาเหตุ"
+            },
+            {
+              "columnId": "owner_value",
+              "label": "ค่า owner ที่มี"
+            },
+            {
+              "columnId": "who",
+              "label": "ใครต้องทำ"
+            }
+          ],
+          "formatters": [
+            {
+              "columnMatch": "cause",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  {
+                    "operator": "==",
+                    "thresholdValue": "ไม่มี tag เลย",
+                    "representation": "redBright",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "ไม่มี owner tag",
+                    "representation": "redBright",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "owner = nan",
+                    "representation": "redBright",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "owner รูปแบบผิด",
+                    "representation": "yellow",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "Default",
+                    "thresholdValue": null,
+                    "representation": "blue",
+                    "text": "{0}{1}"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "exportToExcelOptions": "visible",
+        "size": 1,
+        "showExportToExcel": true
+      },
+      "name": "query - rg"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Virtual Machine ที่ไม่ผ่าน"
+      },
+      "name": "text - vm"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "policyresources\n| where type == \"microsoft.policyinsights/policystates\"\n| where tolower(tostring(properties.policyAssignmentId)) endswith \"/providers/microsoft.authorization/policyassignments/rg-tag-governance-audit\"\n| where tostring(properties.complianceState) == \"NonCompliant\"\n| where tostring(properties.resourceType) =~ \"microsoft.compute/virtualmachines\"\n| extend resource_id = tolower(tostring(properties.resourceId)), policy = tostring(properties.policyDefinitionReferenceId)\n| summarize failed_policies = make_set(policy) by resource_id\n| join kind=leftouter (resources | where type =~ \"microsoft.compute/virtualmachines\" | project resource_id = tolower(id), vm_name = name, rg_name = resourceGroup, vm_tags = tags) on resource_id\n| extend t = todynamic(tostring(vm_tags))\n| extend owner_value = tostring(t.owner)\n| extend cause = case(isempty(tostring(vm_tags)) or tostring(vm_tags) == \"{}\", \"ไม่มี tag เลย\", owner_value =~ \"nan\", \"owner = nan\", isempty(owner_value), \"ไม่มี owner tag\", tostring(failed_policies) contains \"owner\", \"owner รูปแบบผิด\", \"tag อื่นไม่ครบ\")\n| extend who = case(cause == \"owner รูปแบบผิด\" or cause == \"tag อื่นไม่ครบ\", \"Cloud team แก้ได้\", \"ต้องหา owner / ยืนยัน\")\n| project vm_name, rg_name, cause, owner_value, who\n| order by cause asc, vm_name asc",
+        "title": "Virtual Machine",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [
+          "{Subscription}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "labelSettings": [
+            {
+              "columnId": "vm_name",
+              "label": "VM"
+            },
+            {
+              "columnId": "rg_name",
+              "label": "RG"
+            },
+            {
+              "columnId": "cause",
+              "label": "สาเหตุ"
+            },
+            {
+              "columnId": "owner_value",
+              "label": "ค่า owner ที่มี"
+            },
+            {
+              "columnId": "who",
+              "label": "ใครต้องทำ"
+            }
+          ],
+          "formatters": [
+            {
+              "columnMatch": "cause",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  {
+                    "operator": "==",
+                    "thresholdValue": "ไม่มี tag เลย",
+                    "representation": "redBright",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "ไม่มี owner tag",
+                    "representation": "redBright",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "owner = nan",
+                    "representation": "redBright",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "==",
+                    "thresholdValue": "owner รูปแบบผิด",
+                    "representation": "yellow",
+                    "text": "{0}{1}"
+                  },
+                  {
+                    "operator": "Default",
+                    "thresholdValue": null,
+                    "representation": "blue",
+                    "text": "{0}{1}"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "exportToExcelOptions": "visible",
+        "size": 1,
+        "showExportToExcel": true
+      },
+      "name": "query - vm"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## รายชื่อ owner ที่ต้องส่งเมล (1 แถวต่อคน)\nกดปุ่ม Export to Excel มุมขวาของตาราง เพื่อนำไปส่งเมลจากกล่องทีม · owner ที่คั่นด้วยจุลภาคถูกแยกเป็นรายคน, ค่าว่างและ `nan` ถูกตัดออก (ไปอยู่ในกลุ่ม ต้องหา owner)"
+      },
+      "name": "text - owners"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "policyresources\n| where type == \"microsoft.policyinsights/policystates\"\n| where tolower(tostring(properties.policyAssignmentId)) endswith \"/providers/microsoft.authorization/policyassignments/rg-tag-governance-audit\"\n| where tostring(properties.complianceState) == \"NonCompliant\"\n| where tostring(properties.resourceType) =~ \"microsoft.resources/subscriptions/resourcegroups\"\n| extend resource_id = tolower(tostring(properties.resourceId)), policy = tostring(properties.policyDefinitionReferenceId)\n| summarize failed_policies = make_set(policy) by resource_id\n| join kind=leftouter (resourcecontainers | where type =~ \"microsoft.resources/subscriptions/resourcegroups\" | project resource_id = tolower(id), rg_name = name, rg_tags = tags) on resource_id\n| extend t = todynamic(tostring(rg_tags))\n| extend owner_value = tostring(t.owner)\n| mv-expand owner = split(owner_value, \",\")\n| extend owner = trim(@\"\\s+\", tostring(owner))\n| where owner != \"\" and owner !~ \"nan\"\n| summarize rg_count = dcount(rg_name), rg_list = array_strcat(make_set(rg_name), \", \") by owner\n| extend email_ok = iff(owner matches regex @\"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$\", \"ใช่\", \"ไม่ใช่ (ตรวจ tag)\")\n| order by rg_count desc",
+        "title": "owner ของ Resource Group",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [
+          "{Subscription}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "labelSettings": [
+            {
+              "columnId": "owner",
+              "label": "owner"
+            },
+            {
+              "columnId": "rg_count",
+              "label": "จำนวน RG"
+            },
+            {
+              "columnId": "rg_list",
+              "label": "รายการ RG"
+            }
+          ]
+        },
+        "exportToExcelOptions": "visible",
+        "size": 1,
+        "showExportToExcel": true
+      },
+      "name": "query - owner-rg"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "policyresources\n| where type == \"microsoft.policyinsights/policystates\"\n| where tolower(tostring(properties.policyAssignmentId)) endswith \"/providers/microsoft.authorization/policyassignments/rg-tag-governance-audit\"\n| where tostring(properties.complianceState) == \"NonCompliant\"\n| where tostring(properties.resourceType) =~ \"microsoft.compute/virtualmachines\"\n| extend resource_id = tolower(tostring(properties.resourceId)), policy = tostring(properties.policyDefinitionReferenceId)\n| summarize failed_policies = make_set(policy) by resource_id\n| join kind=leftouter (resources | where type =~ \"microsoft.compute/virtualmachines\" | project resource_id = tolower(id), vm_name = name, rg_name = resourceGroup, vm_tags = tags) on resource_id\n| extend t = todynamic(tostring(vm_tags))\n| extend owner_value = tostring(t.owner)\n| mv-expand owner = split(owner_value, \",\")\n| extend owner = trim(@\"\\s+\", tostring(owner))\n| where owner != \"\" and owner !~ \"nan\"\n| summarize vm_count = dcount(vm_name), vm_list = array_strcat(make_set(vm_name), \", \") by owner\n| extend email_ok = iff(owner matches regex @\"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$\", \"ใช่\", \"ไม่ใช่ (ตรวจ tag)\")\n| order by vm_count desc",
+        "title": "owner ของ Virtual Machine",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [
+          "{Subscription}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "labelSettings": [
+            {
+              "columnId": "owner",
+              "label": "owner"
+            },
+            {
+              "columnId": "vm_count",
+              "label": "จำนวน VM"
+            },
+            {
+              "columnId": "vm_list",
+              "label": "รายการ VM"
+            }
+          ]
+        },
+        "exportToExcelOptions": "visible",
+        "size": 1,
+        "showExportToExcel": true
+      },
+      "name": "query - owner-vm"
+    }
+  ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}
