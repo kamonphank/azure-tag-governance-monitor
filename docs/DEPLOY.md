@@ -24,7 +24,7 @@
 3. สร้าง Resource Group (หากยังไม่มี) และ deploy Bicep
 4. ส่งโค้ดในโฟลเดอร์ `function/` ขึ้น Function App
 
-resource ที่ถูกสร้างมี Storage account, Function App (Linux Consumption), Log Analytics, Application Insights, Workbook และ ACS Email (เมื่อ `CreateAcsEmail = $true`) โดยชื่อขึ้นต้นด้วย `NamePrefix` หาก `AssignSubscriptionReader = $true` สคริปต์จะมอบสิทธิ์ Reader ระดับ subscription ให้ managed identity ของ Function ด้วย
+resource ที่ถูกสร้างมี Storage account, Function App (Linux Consumption), Key Vault (เก็บ ACS connection string), Log Analytics, Application Insights, Workbook และ ACS Email (เมื่อ `CreateAcsEmail = $true`) โดยชื่อขึ้นต้นด้วย `NamePrefix` หาก `AssignSubscriptionReader = $true` สคริปต์จะมอบสิทธิ์ Reader ระดับ subscription ให้ managed identity ของ Function ด้วย
 
 สคริปต์ไม่ลบ resource ใด เป็นการ deploy แบบ incremental และไม่แก้ไข resource อื่นใน Resource Group เดียวกัน
 
@@ -228,7 +228,7 @@ curl "https://<function-app>.azurewebsites.net/api/run?code=$key&dry_run=1&force
 - [ ] ยืนยันสถานะของ ACS Email ที่ https://aka.ms/acs-retirement และขอให้ผู้ดูแลอีเมลอนุญาตผู้ส่งจาก `azurecomm.net` (อีเมลมักมี banner "external sender" และอาจเข้า Junk)
 - [ ] ตรวจสอบ `function/holidays.json` กับปฏิทินขององค์กร
 - [ ] กำหนดผู้ดูแล Function ภายหลังสิ้นสุดโครงการ
-- [ ] จำกัดผู้มีสิทธิ์ Contributor บน Resource Group เพราะ storage key และ ACS connection string อยู่ใน App settings
+- [ ] จำกัดผู้มีสิทธิ์ Contributor บน Resource Group เพราะ storage key ยังอยู่ใน App settings (Consumption plan ต้องใช้ key นี้กับ Azure Files จึงย้ายไป Key Vault ไม่ได้) ส่วน ACS connection string เก็บใน Key Vault และ Function อ่านผ่าน managed identity (Key Vault Secrets User) การ deploy ครั้งแรกจึงต้องใช้บัญชีที่สร้าง role assignment ได้ (Owner หรือ User Access Administrator)
 
 ## 9. Troubleshooting
 
