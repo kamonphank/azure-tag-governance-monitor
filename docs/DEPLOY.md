@@ -73,7 +73,7 @@ Copy-Item config/deploy.config.example.psd1 config/deploy.config.psd1
 **การจัดการ Resource Group** สคริปต์ตรวจสอบก่อนทุกครั้ง
 
 - หากมีอยู่แล้ว สคริปต์แสดงรายการ resource ที่มีในนั้น และให้พิมพ์ **ชื่อ Resource Group** เพื่อยืนยันก่อน deploy เพิ่มเติม โดยไม่แก้ไข resource เดิม รวมถึง tag และ region ของ Resource Group
-- `ResourceGroupTags` มีผลเฉพาะ Resource Group ที่สคริปต์สร้างใหม่ หาก Resource Group มีอยู่แล้ว สคริปต์แจ้งเตือนว่าไม่นำ tag ใน config ไปใช้ และ tag เดิมไม่เปลี่ยน ส่วน resource ที่ระบบนี้สร้าง (Storage, Function App ฯลฯ) ไม่ได้กำหนด tag ให้ หาก Policy อื่นขององค์กรบังคับ tag บน resource เหล่านี้ ให้เพิ่ม tag เองภายหลัง
+- `ResourceGroupTags` มีผลเฉพาะ Resource Group ที่สคริปต์สร้างใหม่ หาก Resource Group มีอยู่แล้ว สคริปต์แจ้งเตือนว่าไม่นำ tag ใน config ไปใช้ และ tag เดิมไม่เปลี่ยน ส่วน resource ที่ระบบนี้สร้าง (Storage, Function App ฯลฯ) ไม่ได้กำหนด tag ให้ หาก Policy อื่นของบริษัทบังคับ tag บน resource เหล่านี้ ให้เพิ่ม tag เองภายหลัง
 - หากยังไม่มี สคริปต์แจ้งว่าจะสร้างใหม่พร้อม region และ tag แล้วให้พิมพ์ `yes` เพื่อยืนยัน
 - หากตอบไม่ตรง สคริปต์ยกเลิกโดยไม่มีสิ่งใดเปลี่ยนแปลง
 
@@ -232,9 +232,9 @@ curl "https://<function-app>.azurewebsites.net/api/run?code=$key&dry_run=1&force
 
 **Checklist ก่อนใช้งานจริง**
 
-- [ ] ทดสอบใน lab ครบตามหัวข้อ 7 และได้รับอนุมัติตามขั้นตอนขององค์กร
+- [ ] ทดสอบใน lab ครบตามหัวข้อ 7 และได้รับอนุมัติตามขั้นตอนของบริษัท
 - [ ] ยืนยันสถานะของ ACS Email ที่ https://aka.ms/acs-retirement และขอให้ผู้ดูแลอีเมลอนุญาตผู้ส่งจาก `azurecomm.net` (อีเมลมักมี banner "external sender" และอาจเข้า Junk)
-- [ ] ตรวจสอบ `function/holidays.json` กับปฏิทินขององค์กร
+- [ ] ตรวจสอบ `function/holidays.json` กับปฏิทินของบริษัท
 - [ ] กำหนดผู้ดูแล Function ภายหลังสิ้นสุดโครงการ
 - [ ] จำกัดผู้มีสิทธิ์ Contributor บน Resource Group เพราะ storage key ยังอยู่ใน App settings (Consumption plan ต้องใช้ key นี้กับ Azure Files จึงย้ายไป Key Vault ไม่ได้) ส่วน ACS connection string เก็บใน Key Vault และ Function อ่านผ่าน managed identity (Key Vault Secrets User) การ deploy ครั้งแรกจึงต้องใช้บัญชีที่สร้าง role assignment ได้ (Owner หรือ User Access Administrator)
 
