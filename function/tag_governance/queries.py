@@ -2,6 +2,8 @@
 ผลลัพธ์ทุกแถว: resource_id, kind, name, rg_name, cause, owner_value, who"""
 from __future__ import annotations
 
+import re
+
 _BASE = """policyresources
 | where type == "microsoft.policyinsights/policystates"
 | where tolower(tostring(properties.policyAssignmentId)) endswith "/providers/microsoft.authorization/policyassignments/{assignment}"
@@ -13,9 +15,16 @@ _CAUSE_RG = """| extend cause = case(isempty(tostring({tags})) or tostring({tags
 """
 
 
+def _check_assignment(assignment: str) -> str:
+    """ชื่อ assignment ถูกใส่ลงใน KQL ตรงๆ จึงอนุญาตเฉพาะอักขระที่ Azure ใช้ในชื่อ"""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", assignment or ""):
+        raise ValueError("TG_ASSIGNMENT_NAME มีอักขระที่ไม่อนุญาต (ใช้ได้เฉพาะ a-z A-Z 0-9 . _ -)")
+    return assignment
+
+
 def rg_query(assignment: str) -> str:
     return (
-        _BASE.format(assignment=assignment.lower())
+        _BASE.format(assignment=_check_assignment(assignment).lower())
         + """| where tostring(properties.resourceType) =~ "microsoft.resources/subscriptions/resourcegroups"
 | extend resource_id = tolower(tostring(properties.resourceId)), policy = tostring(properties.policyDefinitionReferenceId)
 | summarize failed_policies = make_set(policy) by resource_id
@@ -31,7 +40,7 @@ def rg_query(assignment: str) -> str:
 
 def vm_query(assignment: str) -> str:
     return (
-        _BASE.format(assignment=assignment.lower())
+        _BASE.format(assignment=_check_assignment(assignment).lower())
         + """| where tostring(properties.resourceType) =~ "microsoft.compute/virtualmachines"
 | extend resource_id = tolower(tostring(properties.resourceId)), policy = tostring(properties.policyDefinitionReferenceId)
 | summarize failed_policies = make_set(policy) by resource_id

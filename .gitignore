@@ -36,3 +36,6 @@ build/
 .vscode/*
 !.vscode/extensions.json
 tmp
+
+# backup จาก teardown.ps1 -BackupTo (มี state และชื่อ resource จริง)
+backup/

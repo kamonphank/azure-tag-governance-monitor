@@ -54,6 +54,7 @@ var funcName = '${namePrefix}-func-${take(uniq, 6)}'
 var planName = '${namePrefix}-plan'
 var lawName = '${namePrefix}-law'
 var aiName = '${namePrefix}-ai'
+var kvName = '${take(namePrefix, 8)}kv${take(uniq, 10)}'
 var workbookGuid = guid(resourceGroup().id, 'tag-governance-workbook')
 
 // ---------------- Storage (ทั้งสำหรับ Function และเก็บ snapshot/state) ----------------
@@ -65,6 +66,7 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   properties: {
     minimumTlsVersion: 'TLS1_2'
     allowBlobPublicAccess: false
+    allowCrossTenantReplication: false
     supportsHttpsTrafficOnly: true
   }
 }
@@ -105,6 +107,23 @@ resource acs 'Microsoft.Communication/communicationServices@2023-04-01' = if (cr
 }
 var acsConn = createAcs ? acs!.listKeys().primaryConnectionString : acsConnectionString
 var sender = createAcs ? 'DoNotReply@${emailDomain!.properties.mailFromSenderDomain}' : mailSender
+
+// ---------------- Key Vault (เก็บ ACS connection string แทนการใส่ตรงใน App settings) ----------------
+resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: kvName
+  location: location
+  properties: {
+    sku: { family: 'A', name: 'standard' }
+    tenantId: subscription().tenantId
+    enableRbacAuthorization: true
+    enableSoftDelete: true
+  }
+}
+resource acsSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: kv
+  name: 'acs-connection-string'
+  properties: { value: acsConn }
+}
 
 // ---------------- Workbook ----------------
 resource workbook 'Microsoft.Insights/workbooks@2023-06-01' = {
@@ -161,10 +180,21 @@ resource func 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'TG_RG_NAME_REGEX', value: rgNameRegex }
         { name: 'TG_HTTP_ENABLED', value: string(enableTestEndpoint) }
         { name: 'TG_MAIL_SENDER', value: sender }
-        { name: 'TG_ACS_CONNECTION_STRING', value: acsConn }
+        { name: 'TG_ACS_CONNECTION_STRING', value: '@Microsoft.KeyVault(SecretUri=${acsSecret.properties.secretUri})' }
         { name: 'TG_WORKBOOK_URL', value: workbookUrl }
       ]
     }
+  }
+}
+
+// Key Vault Secrets User: ให้ Function อ่าน secret ได้อย่างเดียว
+resource kvRead 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: kv
+  name: guid(kv.id, func.id, 'secrets-user')
+  properties: {
+    principalId: func.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
   }
 }
 

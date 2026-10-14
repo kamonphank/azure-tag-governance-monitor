@@ -14,6 +14,7 @@
 .PARAMETER PlanOnly    ดูว่าจะทำอะไรโดยไม่เปลี่ยนแปลงอะไรเลย (what-if)
 .PARAMETER Yes         ข้ามคำถามยืนยัน (สำหรับรันอัตโนมัติ) ยังพิมพ์สรุปให้เห็นเสมอ
 .PARAMETER Part        All (ค่าเริ่มต้น) | Infra = เฉพาะโครงสร้าง | Code = ส่งเฉพาะโค้ด Function (ใช้หลังแก้โค้ด)
+.PARAMETER RestoreFrom โฟลเดอร์ที่ได้จาก teardown.ps1 -BackupTo: คืน state.json และ snapshots ขึ้น Storage ใหม่หลัง deploy (age ของรายการจึงนับต่อ ไม่เริ่มใหม่)
 .PARAMETER Set         กำหนดหรือทับค่าใน config จากบรรทัดคำสั่ง เช่น -Set @{ MailEnabled = $true } (ไม่ถูกบันทึกลงไฟล์)
 
 .EXAMPLE
@@ -32,6 +33,7 @@ param(
   [switch]$PlanOnly,
   [switch]$Yes,
   [ValidateSet('All', 'Infra', 'Code')] [string]$Part = 'All',
+  [string]$RestoreFrom,
   [hashtable]$Set = @{}
 )
 $ErrorActionPreference = 'Stop'
@@ -53,6 +55,11 @@ if (Test-Path $ConfigPath) {
   Fail "ไม่พบไฟล์ config`n    สร้างจากตัวอย่าง:  Copy-Item config/deploy.config.example.psd1 config/deploy.config.psd1`n    แล้วแก้ค่าในไฟล์ใหม่ (ไฟล์จริงถูก .gitignore กันไว้ ไม่ถูก push)"
 }
 foreach ($k in $Set.Keys) { $cfg[$k] = $Set[$k] }   # ค่าจากบรรทัดคำสั่งมาก่อนค่าในไฟล์
+
+if ($RestoreFrom -and -not (Test-Path (Join-Path $RestoreFrom 'state.json'))) {
+  Write-Host "    ! -RestoreFrom: ไม่พบ state.json ใน '$RestoreFrom' (ระบบเดิมอาจยังไม่เคยรัน) จะข้ามการคืน state" -ForegroundColor Yellow
+  $RestoreFrom = ''
+}
 
 $known = @('SubscriptionId', 'ResourceGroup', 'Location', 'ResourceGroupTags', 'NamePrefix', 'PolicyAssignmentName',
   'ScanSubscriptionIds', 'RgNameRegex', 'SlaDays', 'MailEnabled', 'MailTo', 'MailCc', 'MailCcEscalation',
@@ -231,6 +238,20 @@ try {
     $code = $LASTEXITCODE
     Remove-Item $stage -Recurse -Force; Remove-Item $zip -Force
     if ($code -ne 0) { Fail 'ส่งโค้ดไม่สำเร็จ ดูข้อความด้านบน' }
+  }
+
+  # ---------- คืน state จาก backup ----------
+  if ($RestoreFrom) {
+    Step "คืน state จาก $RestoreFrom"
+    $stName = & az storage account list --resource-group $rg --query "[?starts_with(name,'st$($prefix.ToLower())')].name | [0]" -o tsv
+    if (-not $stName) { Fail 'ไม่พบ Storage account ใน RG (ต้อง deploy Infra ก่อน)' }
+    $env:AZURE_STORAGE_KEY = (& az storage account keys list --account-name $stName --resource-group $rg --query "[0].value" -o tsv)
+    try {
+      & az storage container create --account-name $stName --name tag-governance -o none
+      & az storage blob upload-batch --account-name $stName --destination tag-governance --source $RestoreFrom --overwrite true -o none
+      if ($LASTEXITCODE -ne 0) { Fail 'คืน state ไม่สำเร็จ' }
+    } finally { Remove-Item Env:\AZURE_STORAGE_KEY -ErrorAction SilentlyContinue }
+    Info 'คืน state.json และ snapshots แล้ว'
   }
 
   # ---------- 7) ขั้นถัดไป ----------

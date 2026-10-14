@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from tag_governance import core, runner, schedule
+from tag_governance import core, queries, runner, schedule
 from tag_governance.store import LocalStore
 
 
@@ -207,3 +207,10 @@ def test_http_endpoint_disabled_by_default(monkeypatch):
     assert runner.http_enabled() is False
     monkeypatch.setenv("TG_HTTP_ENABLED", "True")
     assert runner.http_enabled() is True
+
+
+def test_assignment_name_is_validated_before_query():
+    assert "rg-tag-governance-audit" in queries.rg_query("RG-Tag-Governance-Audit")
+    for bad in ('x" | take 1 //', "a b", ""):
+        with pytest.raises(ValueError):
+            queries.vm_query(bad)
