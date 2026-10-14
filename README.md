@@ -2,7 +2,7 @@
 
 > Weekly tag-governance monitoring for Azure on top of Azure Policy. Resource Graph snapshot, Workbook dashboard and age-based escalation emails, built with Azure Functions, ACS Email and Bicep.
 
-ระบบนี้ช่วยให้องค์กรทราบว่า Resource Group (RG) และ Virtual Machine (VM) รายการใดยังกำหนด tag ไม่ครบถ้วน แต่ละรายการค้างมานานเท่าใด และแจ้งเตือนผู้ที่เกี่ยวข้องอย่างสม่ำเสมอโดยไม่ต้องตรวจสอบด้วยตนเอง
+ระบบนี้ช่วยให้บริษัททราบว่า Resource Group (RG) และ Virtual Machine (VM) รายการใดยังกำหนด tag ไม่ครบถ้วน แต่ละรายการค้างมานานเท่าใด และแจ้งเตือนผู้ที่เกี่ยวข้องอย่างสม่ำเสมอโดยไม่ต้องตรวจสอบด้วยตนเอง
 
 repository นี้พัฒนาต่อจาก [`azure-policy-rg-vm-tag-governance`](https://github.com/kamonphank/azure-policy-rg-vm-tag-governance) ซึ่งสร้าง Policy initiative สำหรับตรวจสอบ tag ด้วย effect `Audit` โดย repository นี้ไม่ได้สร้าง Policy ใหม่ แต่นำผลการประเมินของ Policy assignment ดังกล่าวมาจัดทำรายงานและการแจ้งเตือน จึงต้อง deploy repository นั้นก่อน
 
@@ -113,13 +113,13 @@ flowchart LR
 ## Data and permissions
 
 - Function ใช้ managed identity ซึ่งได้รับสิทธิ์ **Reader** ระดับ subscription เป็นสิทธิ์อ่านอย่างเดียว ไม่มีสิทธิ์เขียนหรือลบข้อมูล
-- ข้อมูลที่ระบบจัดเก็บอยู่ใน Blob ของบัญชีขององค์กรเอง ได้แก่ ชื่อและ ID ของ RG และ VM ที่ไม่ผ่าน ค่า tag `owner` (ซึ่งมักเป็นอีเมล) และวันที่ตรวจพบครั้งแรก ระบบไม่เก็บข้อมูลภายในตัว VM
+- ข้อมูลที่ระบบจัดเก็บอยู่ใน Blob ของบัญชีของบริษัทเอง ได้แก่ ชื่อและ ID ของ RG และ VM ที่ไม่ผ่าน ค่า tag `owner` (ซึ่งมักเป็นอีเมล) และวันที่ตรวจพบครั้งแรก ระบบไม่เก็บข้อมูลภายในตัว VM
 - ค่าเริ่มต้นถูกกำหนดให้ปลอดภัย กล่าวคือ ระบบไม่ส่งอีเมลจนกว่าผู้ดูแลจะเปิดใช้งาน และ endpoint ทดสอบ `/api/run` ปิดอยู่
 - config จริง (Subscription ID, ชื่อ RG และอีเมล) ไม่ถูกเก็บใน repository โดยมีเฉพาะไฟล์ตัวอย่าง และมีสคริปต์ตรวจสอบก่อน commit เพื่อป้องกันข้อมูลจริงหลุดไปยัง public repository ดังรายละเอียดใน [docs/DEPLOY.md](docs/DEPLOY.md)
 
-ข้อจำกัดที่ควรทราบก่อนนำไปใช้ในองค์กร
+ข้อจำกัดที่ควรทราบก่อนนำไปใช้ในบริษัท
 
-- storage key และ ACS connection string ถูกเก็บไว้ใน App settings ของ Function ผู้ที่มีสิทธิ์ Contributor บน Resource Group มองเห็นได้ จึงควรจำกัดสิทธิ์บน Resource Group นี้ และหากนโยบายขององค์กรกำหนด ควรย้ายไปใช้ Key Vault reference ซึ่ง repository นี้ยังไม่ได้ดำเนินการ
+- ACS connection string เก็บใน Key Vault และ Function อ่านผ่าน managed identity ส่วน storage key ยังอยู่ใน App settings ของ Function เพราะ Consumption plan ต้องใช้กับ Azure Files ผู้ที่มีสิทธิ์ Contributor บน Resource Group มองเห็น storage key ได้ จึงควรจำกัดสิทธิ์บน Resource Group นี้
 - สิทธิ์ Reader ระดับ subscription อ่าน metadata ของทุก resource ได้ หากต้องการจำกัดขอบเขต ให้กำหนด `ScanSubscriptionIds` หรือมอบสิทธิ์ในขอบเขตที่เล็กกว่าด้วยตนเอง
 
 ## Repository structure
