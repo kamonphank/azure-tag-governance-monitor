@@ -26,7 +26,7 @@
 
 resource ที่ถูกสร้างมี Storage account, Function App (Linux Consumption), Key Vault (เก็บ ACS connection string), Log Analytics, Application Insights, Workbook และ ACS Email (เมื่อ `CreateAcsEmail = $true`) โดยชื่อขึ้นต้นด้วย `NamePrefix` หาก `AssignSubscriptionReader = $true` สคริปต์จะมอบสิทธิ์ Reader ระดับ subscription ให้ managed identity ของ Function ด้วย
 
-สคริปต์ไม่ลบ resource ใด เป็นการ deploy แบบ incremental และไม่แก้ไข resource อื่นใน Resource Group เดียวกัน
+`deploy.ps1` ไม่ลบ resource ใด (การลบใช้ `teardown.ps1` ดูหัวข้อ 8) เป็นการ deploy แบบ incremental และไม่แก้ไข resource อื่นใน Resource Group เดียวกัน
 
 ## 2. Prerequisites
 
@@ -220,7 +220,15 @@ curl "https://<function-app>.azurewebsites.net/api/run?code=$key&dry_run=1&force
 
 **Update** แก้ไขโค้ดหรือ `holidays.json` ด้วย `-Part Code` และแก้ไข config ด้วย `-Part Infra`
 
-**Removal** หาก Resource Group สร้างเพื่อระบบนี้โดยเฉพาะ ใช้ `az group delete -n <resource-group>` หากใช้ร่วมกับงานอื่น ให้ลบ resource ที่ขึ้นต้นด้วย `NamePrefix` ทีละรายการ และเพิกถอนสิทธิ์ Reader ด้วย `az role assignment delete --assignee <principalId> --role Reader --scope /subscriptions/<subscription-id>`
+**Removal และเริ่มใหม่** ใช้ `scripts/teardown.ps1` ซึ่งอ่าน config เดียวกับ `deploy.ps1` และลบเฉพาะ resource ที่ deployment ของโปรเจกต์นี้สร้าง (ไม่แตะ resource อื่นใน RG) พร้อมเพิกถอนสิทธิ์ Reader และ purge Key Vault / Log Analytics ที่ค้างใน soft-delete ซึ่งหากไม่ purge การ deploy ใหม่ด้วยชื่อเดิมจะชน
+
+```powershell
+./scripts/teardown.ps1                               # ดูรายการที่จะลบ (ยังไม่ลบ)
+./scripts/teardown.ps1 -BackupTo ./backup -Execute   # สำรอง state แล้วลบ (ต้องพิมพ์ชื่อ RG ยืนยัน)
+./scripts/deploy.ps1 -RestoreFrom ./backup           # deploy ใหม่ และคืน state ให้ age นับต่อ
+```
+
+ถ้าไม่ใช้ `-BackupTo` ไฟล์ `state.json` จะหาย และอายุของรายการทั้งหมดเริ่มนับใหม่ ใช้ `-DeleteResourceGroup` เมื่อ RG สร้างมาเพื่อระบบนี้โดยเฉพาะ ทั้งนี้โฟลเดอร์ backup มีชื่อ resource จริง ห้าม commit (เพิ่มใน `.gitignore` แล้ว)
 
 **Checklist ก่อนใช้งานจริง**
 
