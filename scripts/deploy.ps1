@@ -56,7 +56,10 @@ if (Test-Path $ConfigPath) {
 }
 foreach ($k in $Set.Keys) { $cfg[$k] = $Set[$k] }   # ค่าจากบรรทัดคำสั่งมาก่อนค่าในไฟล์
 
-if ($RestoreFrom -and -not (Test-Path (Join-Path $RestoreFrom 'state.json'))) { Fail "-RestoreFrom: ไม่พบ state.json ใน '$RestoreFrom' (ต้องเป็นโฟลเดอร์ที่ teardown.ps1 -BackupTo สร้าง)" }
+if ($RestoreFrom -and -not (Test-Path (Join-Path $RestoreFrom 'state.json'))) {
+  Write-Host "    ! -RestoreFrom: ไม่พบ state.json ใน '$RestoreFrom' (ระบบเดิมอาจยังไม่เคยรัน) จะข้ามการคืน state" -ForegroundColor Yellow
+  $RestoreFrom = ''
+}
 
 $known = @('SubscriptionId', 'ResourceGroup', 'Location', 'ResourceGroupTags', 'NamePrefix', 'PolicyAssignmentName',
   'ScanSubscriptionIds', 'RgNameRegex', 'SlaDays', 'MailEnabled', 'MailTo', 'MailCc', 'MailCcEscalation',
