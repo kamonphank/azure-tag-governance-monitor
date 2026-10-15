@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from . import core, schedule
 from .queries import filter_scope
 
-TZ = ZoneInfo("Asia/Bangkok")
+TZ = timezone(timedelta(hours=7))  # เวลาไทย (UTC+7 ไม่มี DST) ไม่ใช้ zoneinfo เพราะบางเครื่องไม่มีฐานข้อมูลเขตเวลา ทำให้ import ล้ม
 HOLIDAYS_FILE = Path(__file__).resolve().parent.parent / "holidays.json"
 
 
