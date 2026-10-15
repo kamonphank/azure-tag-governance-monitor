@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   ลบ resource ที่ deploy.ps1 สร้างไว้ เพื่อเริ่มใหม่ (อ่านค่าจาก config เดียวกับ deploy.ps1)
 

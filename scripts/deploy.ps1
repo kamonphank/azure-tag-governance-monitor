@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Deploy Azure Tag Governance Monitor ทั้งชุด (Storage + Function + ACS Email + Workbook) ลง Resource Group เดียว
   ค่าทั้งหมดอ่านจาก config/deploy.config.psd1 (ไฟล์นี้ไม่ถูก push ขึ้น repo)

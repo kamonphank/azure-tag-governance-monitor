@@ -1,4 +1,4 @@
-# ตัวอย่าง config สำหรับ scripts/deploy.ps1 (รายละเอียดทุกค่าอยู่ใน docs/DEPLOY.md หัวข้อ Configuration)
+﻿# ตัวอย่าง config สำหรับ scripts/deploy.ps1 (รายละเอียดทุกค่าอยู่ใน docs/DEPLOY.md หัวข้อ Configuration)
 #
 #   1) Copy-Item config/deploy.config.example.psd1 config/deploy.config.psd1
 #   2) แก้เฉพาะส่วน REQUIRED (4 ค่า และ tag หาก RG ยังไม่มี) ก็ deploy ได้ (ไฟล์จริงถูก .gitignore กันไว้ ห้ามแก้ไฟล์ example ใส่ค่าจริง)
