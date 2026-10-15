@@ -28,5 +28,10 @@ def run_now(req: func.HttpRequest) -> func.HttpResponse:
     force = req.params.get("force", "0") in ("1", "true", "True")
     t = req.params.get("today")
     today = date.fromisoformat(t) if t else None
-    result = runner.run(today=today, dry_run=dry, force=force)
+    try:
+        result = runner.run(today=today, dry_run=dry, force=force)
+    except Exception as e:
+        # ส่งข้อความ error กลับไปด้วย (endpoint นี้ต้องมี function key และเปิดเฉพาะตอนทดสอบ) จะได้ไม่ต้องไปเปิด log
+        logging.exception("run_now failed")
+        return func.HttpResponse(f"{type(e).__name__}: {e}", status_code=500, mimetype="text/plain; charset=utf-8")
     return func.HttpResponse(json.dumps(result, ensure_ascii=False, indent=2, default=str), mimetype="application/json")
