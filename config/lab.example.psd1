@@ -1,4 +1,4 @@
-# ชุดที่ 1: ห้องแล็บของตัวเอง (ลบ/สร้างใหม่ได้บ่อย) Copy-Item config/lab.example.psd1 config/lab.psd1 แล้วแก้ 4 ค่าแรก
+﻿# ชุดที่ 1: ห้องแล็บของตัวเอง (ลบ/สร้างใหม่ได้บ่อย) Copy-Item config/lab.example.psd1 config/lab.psd1 แล้วแก้ 4 ค่าแรก
 @{
     SubscriptionId = '00000000-0000-0000-0000-000000000000'
     ResourceGroup  = 'rg-tag-governance-lab'

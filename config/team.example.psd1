@@ -1,4 +1,4 @@
-# ชุดที่ 2: ให้ทีมใช้งานจริง Copy-Item config/team.example.psd1 config/team.psd1 แล้วแก้ค่าให้ครบ
+﻿# ชุดที่ 2: ให้ทีมใช้งานจริง Copy-Item config/team.example.psd1 config/team.psd1 แล้วแก้ค่าให้ครบ
 @{
     SubscriptionId = '00000000-0000-0000-0000-000000000000'
     ResourceGroup  = 'rg-tag-governance'
