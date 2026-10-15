@@ -33,7 +33,7 @@ def rg_query(assignment: str) -> str:
 | extend owner_value = tostring(t.owner)
 """
         + _CAUSE_RG.format(tags="rg_tags")
-        + """| project resource_id, kind = "Resource Group", name = rg_name, rg_name, cause, owner_value, who
+        + """| project resource_id, resource_kind = "Resource Group", resource_name = rg_name, rg_name, cause, owner_value, who
 """
     )
 
@@ -49,7 +49,7 @@ def vm_query(assignment: str) -> str:
 | extend owner_value = tostring(t.owner)
 """
         + _CAUSE_RG.format(tags="vm_tags")
-        + """| project resource_id, kind = "Virtual Machine", name = vm_name, rg_name, cause, owner_value, who
+        + """| project resource_id, resource_kind = "Virtual Machine", resource_name = vm_name, rg_name, cause, owner_value, who
 """
     )
 
@@ -74,6 +74,9 @@ def fetch_items(credential, assignment: str, subscription_ids: list[str] | None 
             if not skip_token:
                 break
     for it in items:
+        # Resource Graph ไม่ยอมให้ตั้งชื่อคอลัมน์ว่า kind (ParserFailure) จึงใช้ resource_kind / resource_name ใน query แล้วแปลงกลับตรงนี้
+        it["kind"] = it.pop("resource_kind", None) or it.get("kind") or ""
+        it["name"] = it.pop("resource_name", None) or it.get("name") or ""
         it["resource_id"] = (it.get("resource_id") or "").lower()
         for k in ("name", "rg_name", "cause", "owner_value", "who"):
             it[k] = it.get(k) or ""

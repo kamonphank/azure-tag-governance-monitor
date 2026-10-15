@@ -214,3 +214,12 @@ def test_assignment_name_is_validated_before_query():
     for bad in ('x" | take 1 //', "a b", ""):
         with pytest.raises(ValueError):
             queries.vm_query(bad)
+
+
+def test_queries_avoid_reserved_column_names():
+    # Resource Graph ตอบ ParserFailure ถ้า project คอลัมน์ชื่อ kind
+    from tag_governance.queries import rg_query, vm_query
+
+    for q in (rg_query("rg-tag-governance-audit"), vm_query("rg-tag-governance-audit")):
+        last = q.strip().splitlines()[-1]
+        assert " kind =" not in last and " name =" not in last
