@@ -1,186 +1,176 @@
 # Deployment Guide
 
-เอกสารนี้อธิบายการ deploy ระบบและความหมายของค่าใน config ส่วนภาพรวมของระบบอยู่ใน [README](../README.md)
+คู่มือ deploy ระบบขึ้นระบบจริงของบริษัท ภาพรวมของระบบอยู่ใน [README](../README.md) ส่วนการทดสอบแบบลบแล้วสร้างใหม่ในห้องแล็บอยู่ใน [QUICKSTART](QUICKSTART.md)
 
 **Contents**
 
-1. [Overview](#1-overview)
-2. [Prerequisites](#2-prerequisites)
-3. [Deployment steps](#3-deployment-steps)
-4. [Configuration](#4-configuration)
-5. [Environment variables](#5-environment-variables)
-6. [Assigning the Reader role](#6-assigning-the-reader-role)
-7. [Post-deployment testing](#7-post-deployment-testing)
-8. [Rollout, update and removal](#8-rollout-update-and-removal)
-9. [Troubleshooting](#9-troubleshooting)
-10. [For developers](#10-for-developers)
+1. [Deploy to production](#1-deploy-to-production)
+2. [Configuration](#2-configuration)
+3. [Assigning the Reader role](#3-assigning-the-reader-role)
+4. [Testing](#4-testing)
+5. [Update and removal](#5-update-and-removal)
+6. [Troubleshooting](#6-troubleshooting)
+7. [For developers](#7-for-developers)
 
-## 1. Overview
+## 1. Deploy to production
 
-สคริปต์ `./scripts/deploy.ps1` deploy ระบบทั้งหมดลงใน Resource Group เดียว โดยอ่านค่าจาก `config/deploy.config.psd1` ตามลำดับดังนี้
+ทำตามลำดับ ตั้งแต่เครื่องที่ยังไม่มีอะไรจนระบบพร้อมใช้ ใช้เวลาประมาณ 15 นาที
 
-1. ตรวจสอบ config และตรวจว่า `az login` อยู่ใน subscription ที่ระบุ
-2. ตรวจสอบ Resource Group และขอให้ผู้ใช้ยืนยัน
-3. สร้าง Resource Group (หากยังไม่มี) และ deploy Bicep
-4. ส่งโค้ดในโฟลเดอร์ `function/` ขึ้น Function App
+### Step 1: เตรียมเครื่องและสิทธิ์
 
-resource ที่ถูกสร้างมี Storage account, Function App (Linux Consumption), Key Vault (เก็บ ACS connection string), Log Analytics, Application Insights, Workbook และ ACS Email (เมื่อ `CreateAcsEmail = $true`) โดยชื่อขึ้นต้นด้วย `NamePrefix` หาก `AssignSubscriptionReader = $true` สคริปต์จะมอบสิทธิ์ Reader ระดับ subscription ให้ managed identity ของ Function ด้วย
+| Item | Version | หมายเหตุ |
+|---|---|---|
+| PowerShell | 7 ขึ้นไป (5.1 ก็ใช้ได้) | ตรวจด้วย `$PSVersionTable.PSVersion` |
+| Azure CLI (`az`) | ล่าสุด | ตรวจด้วย `az version` อัปเดตด้วย `az upgrade` |
+| Bicep | ล่าสุด | ติดตั้งมากับ Azure CLI อัปเดตด้วย `az bicep upgrade` (Bicep เก่ามีบั๊กทำให้ compile ไม่ผ่าน) |
+| Git | เวอร์ชันใดก็ได้ | ใช้ clone |
 
-`deploy.ps1` ไม่ลบ resource ใด (การลบใช้ `teardown.ps1` ดูหัวข้อ 8) เป็นการ deploy แบบ incremental และไม่แก้ไข resource อื่นใน Resource Group เดียวกัน
+สิ่งที่ต้องมีก่อน deploy
 
-## 2. Prerequisites
-
-- PowerShell 5.1 หรือ 7 ขึ้นไป และ [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (`az`)
-- Policy assignment ที่ตรวจ tag อยู่แล้ว จาก repository [azure-policy-rg-vm-tag-governance](https://github.com/kamonphank/azure-policy-rg-vm-tag-governance) โดยชื่อต้องตรงกับ `PolicyAssignmentName`
-- สิทธิ์ของผู้ deploy ตามตารางต่อไปนี้
+- **Policy assignment** ที่ตรวจ tag อยู่แล้ว จาก repository [azure-policy-rg-vm-tag-governance](https://github.com/kamonphank/azure-policy-rg-vm-tag-governance) และจดชื่อ assignment ไว้
+- **สิทธิ์ของผู้ deploy**
 
 | Task | Required permission |
 |---|---|
 | สร้าง Resource Group ใหม่ | Contributor ระดับ subscription |
-| สร้าง resource ใน Resource Group | Contributor บน Resource Group นั้น |
-| มอบสิทธิ์ Reader ให้ Function | Owner หรือ User Access Administrator ที่ subscription |
+| สร้าง resource ใน Resource Group เดิม | Contributor บน Resource Group นั้น |
+| มอบสิทธิ์ Reader และ Key Vault ให้ Function | Owner หรือ User Access Administrator ที่ subscription |
 
-หากไม่มีสิทธิ์ข้อสุดท้าย ให้กำหนด `AssignSubscriptionReader = $false` และให้ administrator มอบสิทธิ์ตามหัวข้อ [Assigning the Reader role](#6-assigning-the-reader-role)
+หากไม่มีสิทธิ์ข้อสุดท้าย ให้ administrator ช่วย deploy หรือดู [Assigning the Reader role](#3-assigning-the-reader-role)
 
-## 3. Deployment steps
-
-หลัง clone repository ต้องแก้ config เพียง 4 ค่า (และ tag ของ Resource Group หากยังไม่มี) ค่าอื่นมีค่าเริ่มต้นที่ใช้ได้ทันที ไฟล์ตัวอย่างแสดงค่าที่ไม่บังคับเป็นคอมเมนต์ไว้ด้านล่าง
+### Step 2: Clone repository
 
 ```powershell
-Copy-Item config/deploy.config.example.psd1 config/deploy.config.psd1
+git clone https://github.com/kamonphank/azure-tag-governance-monitor.git
+cd azure-tag-governance-monitor
+git checkout feature/azure-tag-governance-init   # เปลี่ยนเป็น main เมื่อ merge เข้า main แล้ว
 ```
+
+### Step 3: Login และเลือก subscription
 
 ```powershell
-@{
-    SubscriptionId = '<subscription-id>'
-    ResourceGroup  = '<resource-group>'
-    Location       = 'southeastasia'
-    MailTo         = @('<responsible-person-email>', '<deployer-email>')
-}
+az login
+az account set --subscription <subscription-id>
+az bicep upgrade
 ```
 
-จากนั้นรันตามลำดับดังนี้
+สคริปต์เทียบ subscription ที่ใช้งานอยู่กับ `SubscriptionId` ใน config และหยุดทันทีหากไม่ตรง เพื่อป้องกัน deploy ผิด subscription
 
-| Step | Command | Reason |
-|---|---|---|
-| 1 | `az login` | สคริปต์ใช้สิทธิ์ของ session นี้ในการสร้าง resource |
-| 2 | `az account set --subscription <subscription-id>` | สคริปต์เทียบ subscription ที่ใช้งานอยู่กับ `SubscriptionId` และหยุดหากไม่ตรง เพื่อป้องกัน deploy ผิด subscription |
-| 3 | `./scripts/deploy.ps1 -PlanOnly` | ตรวจสอบ config และแสดงว่า Resource Group มีอยู่แล้วหรือไม่ โดยไม่เปลี่ยนแปลงสิ่งใด |
-| 4 | `./scripts/deploy.ps1` | deploy จริง โดยสคริปต์ถามยืนยันก่อนทุกครั้ง |
+### Step 4: ตั้งค่า config
 
-ไฟล์ `config/deploy.config.psd1` ถูกกำหนดใน `.gitignore` จึงไม่ถูก push ขึ้น repository ห้ามแก้ไขไฟล์ตัวอย่างให้เป็นค่าจริง
+```powershell
+Copy-Item config/team.example.psd1 config/prod.psd1
+```
 
-**การจัดการ Resource Group** สคริปต์ตรวจสอบก่อนทุกครั้ง
-
-- หากมีอยู่แล้ว สคริปต์แสดงรายการ resource ที่มีในนั้น และให้พิมพ์ **ชื่อ Resource Group** เพื่อยืนยันก่อน deploy เพิ่มเติม โดยไม่แก้ไข resource เดิม รวมถึง tag และ region ของ Resource Group
-- `ResourceGroupTags` มีผลเฉพาะ Resource Group ที่สคริปต์สร้างใหม่ หาก Resource Group มีอยู่แล้ว สคริปต์แจ้งเตือนว่าไม่นำ tag ใน config ไปใช้ และ tag เดิมไม่เปลี่ยน ส่วน resource ที่ระบบนี้สร้าง (Storage, Function App ฯลฯ) ไม่ได้กำหนด tag ให้ หาก Policy อื่นของบริษัทบังคับ tag บน resource เหล่านี้ ให้เพิ่ม tag เองภายหลัง
-- หากยังไม่มี สคริปต์แจ้งว่าจะสร้างใหม่พร้อม region และ tag แล้วให้พิมพ์ `yes` เพื่อยืนยัน
-- หากตอบไม่ตรง สคริปต์ยกเลิกโดยไม่มีสิ่งใดเปลี่ยนแปลง
-
-| Option | Description |
-|---|---|
-| `-ConfigPath <path>` | ใช้ไฟล์ config อื่น เช่น `lab.psd1` และ `prod.psd1` (ไฟล์ `config/*.psd1` ยกเว้น `*.example.psd1` ถูกกำหนดใน `.gitignore`) |
-| `-PlanOnly` | แสดงสรุป และรัน `what-if` หาก Resource Group มีอยู่แล้ว โดยไม่เปลี่ยนแปลงสิ่งใด |
-| `-Yes` | ข้ามขั้นตอนการยืนยัน เหมาะกับการรันอัตโนมัติ |
-| `-Part Infra` | deploy เฉพาะโครงสร้างและ App settings ใช้หลังแก้ไข config |
-| `-Part Code` | ส่งเฉพาะโค้ด Function ใช้หลังแก้ไขโค้ดหรือ `holidays.json` |
-| `-Set @{ Key = Value }` | กำหนดหรือทับค่าใน config จากบรรทัดคำสั่ง ใช้ key ชุดเดียวกับหัวข้อ 4 และตรวจสอบเหมือนค่าในไฟล์ ค่านี้ไม่ถูกบันทึกลงไฟล์ และสคริปต์แสดง key ที่ถูกทับในสรุปก่อนยืนยัน หากไม่มีไฟล์ config จะใช้ค่าจาก `-Set` ทั้งหมด |
-
-### Production example
-
-ระบบส่งอีเมลสองระดับ โดยตั้งค่าและ deploy เพียงครั้งเดียว ไม่ต้อง deploy ซ้ำเมื่อถึงรอบที่สอง
-
-| Round | เงื่อนไข | To | Cc |
-|---|---|---|---|
-| 1 | อีเมลสรุปรายสัปดาห์ทุกฉบับ | `MailTo` (2 คน) | `MailCc` (1 คน) |
-| 2 | มีรายการค้างเข้า Stage 2 ในสัปดาห์นั้น | `MailTo` (2 คน) | `MailCc` และ `MailCcEscalation` (2 คน) |
-
-สร้างไฟล์ `config/prod.psd1` (ถูก `.gitignore` กันไว้เช่นเดียวกับ `deploy.config.psd1`) ดังนี้
+แก้ไฟล์ `config/prod.psd1` ให้ครบ ค่าที่ต้องแก้มีดังนี้ ค่าอื่นใช้ค่าเริ่มต้นได้เลย
 
 ```powershell
 @{
     SubscriptionId    = '<subscription-id>'
     ResourceGroup     = '<resource-group>'
     Location          = 'southeastasia'
-    ResourceGroupTags = @{ '<tag-name>' = '<value>' }   # ตามที่ Policy บังคับ
-    MailTo            = @('<responsible-person-email>', '<deployer-email>')
-    MailCc            = @('<manager-email>')
-    MailCcEscalation  = @('<senior-manager-email>')
-    MailEnabled       = $false    # เปลี่ยนเป็น $true เมื่อพร้อมส่งอีเมลจริง
+    ResourceGroupTags = @{ '<tag-name>' = '<value>' }   # ตามที่ Policy บังคับ (ใช้เฉพาะ Resource Group ที่สร้างใหม่)
+    MailTo            = @('<responsible-person-email>')  # ผู้รับอีเมลสรุปทุกฉบับ
+    MailCc            = @()                              # Cc ทุกฉบับ (ไม่บังคับ)
+    MailCcEscalation  = @('<manager-email>')             # Cc เพิ่มเมื่อมีรายการค้างเกินกำหนดสองรอบ
+    MailEnabled       = $false                           # เริ่มด้วย $false (ดู Step 7)
 }
 ```
 
+- ไฟล์ `config/*.psd1` (ยกเว้น `*.example.psd1`) ถูก `.gitignore` กันไว้ จึงไม่ถูก push ห้ามแก้ไฟล์ตัวอย่างให้เป็นค่าจริง และห้ามใส่ข้อมูลลับในไฟล์ config
+- ถ้าใช้ ACS Email เดิมแทนการสร้างใหม่ ให้ตั้ง `CreateAcsEmail = $false`, `ExistingAcsSender` และตัวแปร `$env:TG_ACS_CONNECTION_STRING = '<connection-string>'` ในหน้าต่าง PowerShell เดียวกับที่รัน deploy
+
+### Step 5: ตรวจสอบก่อน deploy
+
 ```powershell
-az login
-az account set --subscription <subscription-id>
+./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -PlanOnly
+```
 
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -PlanOnly    # ตรวจสอบก่อน
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1              # deploy (ยังไม่ส่งอีเมล)
+สคริปต์ตรวจ config แสดงสรุปสิ่งที่จะทำ และบอกว่า Resource Group มีอยู่แล้วหรือไม่ โดยไม่เปลี่ยนแปลงสิ่งใด หากมี error สคริปต์ระบุจุดที่ผิด
 
-# อย่างน้อย 1 สัปดาห์ต่อมา เมื่อพร้อมส่งอีเมลจริง ให้แก้ MailEnabled = $true ใน prod.psd1 แล้วรัน
+### Step 6: Deploy
+
+```powershell
+./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1
+```
+
+สคริปต์ถามยืนยันก่อนทุกครั้ง
+
+- Resource Group ใหม่: พิมพ์ `yes`
+- Resource Group ที่มีอยู่แล้ว: พิมพ์ **ชื่อ Resource Group** (สคริปต์เพิ่ม resource ของโปรเจกต์นี้ ไม่ลบหรือแก้ resource อื่น และไม่แก้ tag หรือ region ของ Resource Group)
+
+จากนั้นสคริปต์สร้าง resource ทั้งชุด (Storage, Function App, Key Vault, Log Analytics, Application Insights, Workbook, ACS Email) ให้สิทธิ์ Reader แก่ Function แล้วส่งโค้ดขึ้น Function App ท้ายสุดสคริปต์พิมพ์ขั้นตอนถัดไปให้
+
+### Step 7: ตรวจสอบและเปิดส่งอีเมล
+
+รอ 2-3 นาทีให้สิทธิ์แพร่กระจาย แล้วตรวจที่ Azure Portal
+
+- **Function App** สถานะ Running
+- **Function App > Environment variables** แถว `TG_ACS_CONNECTION_STRING` มีเครื่องหมายถูกสีเขียว (อ่าน secret จาก Key Vault ได้)
+- **Monitor > Workbooks > Shared > "Tag Governance"** เปิดได้ และตัวเลขใกล้เคียงหน้า Policy compliance
+
+เมื่อเรียบร้อย ระบบเก็บ snapshot ไปเรื่อยๆ โดยยังไม่ส่งอีเมล ควรปล่อยไว้อย่างน้อย 1 สัปดาห์เพื่อให้มีข้อมูลอายุของรายการ แล้วเปิดส่งอีเมล
+
+```powershell
+# แก้ MailEnabled = $true ใน config/prod.psd1 แล้วรัน
 ./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -Part Infra
 ```
 
-### Using -Set
+ทดสอบก่อนเปิดส่งจริงได้ตามหัวข้อ [Testing](#4-testing)
 
-ค่าที่ต้องคงอยู่ในระบบจริง (ผู้รับอีเมล, `MailEnabled`) ควรอยู่ในไฟล์ config เพราะ `-Set` ไม่ถูกบันทึก หากรัน `-Part Infra` ครั้งถัดไปโดยไม่ระบุ ค่าจะกลับไปเป็นค่าในไฟล์ `-Set` เหมาะกับค่าที่เปลี่ยนเป็นครั้งคราว ดังตัวอย่างต่อไปนี้
+### Checklist ก่อนใช้งานจริง
 
-```powershell
-# ใช้ config เดียวกัน แต่ทดสอบใน Resource Group อื่น โดยไม่ Cc ผู้จัดการ
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -Set @{ ResourceGroup = '<lab-resource-group>'; MailCc = @(); MailCcEscalation = @() }
+- [ ] ทดสอบในห้องแล็บตาม [QUICKSTART](QUICKSTART.md) และได้รับอนุมัติตามขั้นตอนของบริษัท
+- [ ] ยืนยันสถานะของ ACS Email ที่ https://aka.ms/acs-retirement และขอให้ผู้ดูแลอีเมลอนุญาตผู้ส่งจาก `azurecomm.net` (อีเมลมักมี banner "external sender" และอาจเข้า Junk)
+- [ ] ตรวจสอบ `function/holidays.json` กับปฏิทินของบริษัท
+- [ ] กำหนดผู้ดูแล Function ภายหลังสิ้นสุดโครงการ
+- [ ] จำกัดผู้มีสิทธิ์ Contributor บน Resource Group เพราะ storage key ยังอยู่ใน App settings (Consumption plan ต้องใช้ key นี้กับ Azure Files จึงย้ายไป Key Vault ไม่ได้) ส่วน ACS connection string เก็บใน Key Vault และ Function อ่านผ่าน managed identity
 
-# ไม่ใช้ไฟล์ config เลย
-./scripts/deploy.ps1 -Set @{ SubscriptionId = '<subscription-id>'; ResourceGroup = '<resource-group>'; Location = 'southeastasia'; MailTo = '<deployer-email>' }
-```
+## 2. Configuration
 
-## 4. Configuration
-
-config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข้อมูลล้วน สคริปต์ไม่รันโค้ดใดในไฟล์ คำอธิบายเบื้องต้นของแต่ละค่าอยู่ในคอมเมนต์ของ `config/deploy.config.example.psd1` สคริปต์ตรวจสอบค่าก่อนทำงาน และหยุดพร้อมแจ้งจุดที่ผิด เช่น key ที่ไม่รู้จัก GUID ไม่ถูกต้อง หรืออีเมลที่ยังเป็น `example.com`
+config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข้อมูลล้วน สคริปต์ไม่รันโค้ดใดในไฟล์ และตรวจค่าก่อนทำงาน หยุดพร้อมแจ้งจุดที่ผิด เช่น key ที่ไม่รู้จัก GUID ไม่ถูกต้อง หรืออีเมลที่ยังเป็น `example.com`
 
 | Config key | Required | Default | Description | App setting |
 |---|---|---|---|---|
-| `SubscriptionId` | Yes | - | subscription ที่ deploy ลง และเป็น subscription ที่ Function ได้รับสิทธิ์ Reader สคริปต์หยุดหากไม่ตรงกับ `az login` | - |
+| `SubscriptionId` | Yes | - | subscription ที่ deploy ลง และที่ Function ได้รับสิทธิ์ Reader | - |
 | `ResourceGroup` | Yes | - | ชื่อ Resource Group (มีแล้วจะ deploy เพิ่ม ยังไม่มีจะสร้างใหม่) | - |
-| `Location` | Yes | - | region ของ Resource Group ใหม่ เช่น `southeastasia` (Resource Group เดิมใช้ region เดิม) | - |
-| `ResourceGroupTags` | No | `@{}` | tag ของ Resource Group ที่สร้างใหม่เท่านั้น (ไม่มีผลกับ Resource Group ที่มีอยู่แล้ว) ควรครบตามที่ Policy บังคับ เพราะ Resource Group นี้ถูกตรวจด้วย | - |
+| `Location` | Yes | - | region ของ Resource Group ใหม่ เช่น `southeastasia` | - |
+| `MailTo` | Yes | - | ผู้รับหลักของอีเมลสรุปทุกฉบับ ต้องเป็นอีเมลจริง | `TG_MAIL_TO` |
+| `ResourceGroupTags` | No | `@{}` | tag ของ Resource Group ที่สร้างใหม่เท่านั้น ควรครบตามที่ Policy บังคับ เพราะ Resource Group นี้ถูกตรวจด้วย | - |
 | `NamePrefix` | No | `tagGov` | คำนำหน้าชื่อ resource (ตัวอักษรหรือตัวเลข 1 ถึง 8 ตัว) | - |
-| `PolicyAssignmentName` | No | `rg-tag-governance-audit` | ชื่อ Policy assignment (ไม่ใช่ ID เต็ม) ตรวจสอบได้ด้วย `az policy assignment list --query "[].name" -o tsv` | `TG_ASSIGNMENT_NAME` |
+| `PolicyAssignmentName` | No | `rg-tag-governance-audit` | ชื่อ Policy assignment (ไม่ใช่ ID เต็ม) ตรวจสอบด้วย `az policy assignment list --query "[].name" -o tsv` | `TG_ASSIGNMENT_NAME` |
 | `ScanSubscriptionIds` | No | `@()` | จำกัด subscription ที่ scan ว่างคือทุก subscription ที่ Function อ่านได้ | `TG_SUBSCRIPTION_IDS` |
-| `RgNameRegex` | No | ว่าง | กรองเฉพาะ Resource Group ที่ชื่อตรง regex (VM ใช้ชื่อ Resource Group ของตน) | `TG_RG_NAME_REGEX` |
+| `RgNameRegex` | No | ว่าง | กรองเฉพาะ Resource Group ที่ชื่อตรง regex โดยปกติไม่ต้องใช้ | `TG_RG_NAME_REGEX` |
 | `SlaDays` | No | `14` | จำนวนวันที่ค้างก่อนเข้าสู่ Stage 1 | `TG_SLA_DAYS` |
 | `MailEnabled` | No | `$false` | `$false` คือไม่ส่งอีเมล (เก็บเฉพาะ snapshot และ state) | `TG_MAIL_ENABLED` |
-| `MailTo` | Yes | - | ผู้รับหลักของอีเมลสรุปทุกฉบับ ต้องเป็นอีเมลจริง | `TG_MAIL_TO` |
 | `MailCc` | No | `@()` | Cc ของอีเมลสรุปทุกฉบับ | `TG_MAIL_CC` |
 | `MailCcEscalation` | No | `@()` | Cc เพิ่มเติมเฉพาะอีเมลที่มีรายการ Stage 2 | `TG_MAIL_CC_ESCALATION` |
-| `CreateAcsEmail` | No | `$true` | `$true` คือสร้าง ACS Email ใหม่ (ผู้ส่งเป็น `DoNotReply@<domain>.azurecomm.net`) `$false` คือใช้ ACS เดิม | `TG_MAIL_SENDER`, `TG_ACS_CONNECTION_STRING` |
+| `CreateAcsEmail` | No | `$true` | `$true` คือสร้าง ACS Email ใหม่ `$false` คือใช้ ACS เดิม | `TG_MAIL_SENDER`, `TG_ACS_CONNECTION_STRING` |
 | `ExistingAcsSender` | เมื่อ `CreateAcsEmail = $false` | ว่าง | ที่อยู่ผู้ส่งของ ACS เดิม | `TG_MAIL_SENDER` |
 | `AssignSubscriptionReader` | No | `$true` | ให้สคริปต์มอบสิทธิ์ Reader แก่ Function | - |
 | `EnableTestEndpoint` | No | `$false` | เปิด endpoint `/api/run` สำหรับทดสอบ | `TG_HTTP_ENABLED` |
 
 ข้อควรทราบ
 
-- **`MailEnabled = $false`** ระบบไม่บันทึกว่ารายการถูก escalate เมื่อเปิดส่งอีเมลภายหลัง รายการที่ค้างนานจะเริ่มที่ Stage 1 เสมอ ไม่ข้ามไป Stage 2 จึงแนะนำให้เริ่มด้วย `$false` อย่างน้อย 1 สัปดาห์เพื่อเก็บข้อมูล age
+- **`MailEnabled = $false`** ระบบไม่บันทึกว่ารายการถูก escalate เมื่อเปิดส่งอีเมลภายหลัง รายการที่ค้างนานจะเริ่มที่ Stage 1 เสมอ ไม่ข้ามไป Stage 2 จึงแนะนำให้เริ่มด้วย `$false` อย่างน้อย 1 สัปดาห์
 - **Cc** หากอีเมลใน `MailCc` และ `MailCcEscalation` ซ้ำกัน ระบบใส่เพียงครั้งเดียว
-- **สิทธิ์ Reader** สคริปต์มอบให้เฉพาะ subscription ใน `SubscriptionId` หากต้องการ scan subscription อื่น administrator ต้องมอบสิทธิ์ให้เองตามหัวข้อ 6
-- **`RgNameRegex`** โดยปกติไม่จำเป็นต้องใช้ เพราะ Policy ไม่นับ managed Resource Group (เช่น ของ Databricks) อยู่แล้ว หากใช้ ให้ทดสอบด้วย dry run และเทียบจำนวนกับหน้า Policy compliance เนื่องจาก regex ที่กว้างหรือแคบเกินไปทำให้ Resource Group หายจากรายงานโดยไม่มีผู้ทราบ
-- **`EnableTestEndpoint`** ปิดไว้เป็นค่าเริ่มต้น เพราะ `dry_run=0` ส่งอีเมลและบันทึก state ได้จริง
+- **สิทธิ์ Reader** สคริปต์มอบให้เฉพาะ subscription ใน `SubscriptionId` หากต้องการ scan subscription อื่น administrator ต้องมอบสิทธิ์ให้เอง
+- **`EnableTestEndpoint`** ปิดไว้เป็นค่าเริ่มต้น เพราะ `dry_run=0` ส่งอีเมลและบันทึก state ได้จริง เปิดเฉพาะตอนทดสอบ
 
-## 5. Environment variables
+**ตัวเลือกของ `deploy.ps1`**
 
-ผู้ใช้ต้องตั้งตัวแปรเพียงตัวเดียว และเฉพาะเมื่อ `CreateAcsEmail = $false`
+| Option | Description |
+|---|---|
+| `-ConfigPath <path>` | ใช้ไฟล์ config อื่น (ค่าเริ่มต้น `config/deploy.config.psd1`) |
+| `-PlanOnly` | แสดงสรุป และรัน what-if หาก Resource Group มีอยู่แล้ว โดยไม่เปลี่ยนแปลงสิ่งใด |
+| `-Yes` | ข้ามขั้นตอนการยืนยัน เหมาะกับการรันอัตโนมัติ |
+| `-Part Infra` / `-Part Code` | deploy เฉพาะโครงสร้างและ App settings / ส่งเฉพาะโค้ด Function |
+| `-Set @{ Key = Value }` | ทับค่าใน config จากบรรทัดคำสั่งชั่วคราว ไม่ถูกบันทึกลงไฟล์ ค่าที่ต้องคงอยู่ควรอยู่ในไฟล์ config |
+| `-RestoreFrom <dir>` | คืน state ที่สำรองไว้ด้วย `teardown.ps1 -BackupTo` หลัง deploy |
 
-```powershell
-$env:TG_ACS_CONNECTION_STRING = 'endpoint=https://<name>.communication.azure.com/;accesskey=<key>'
-./scripts/deploy.ps1
-```
+## 3. Assigning the Reader role
 
-ตัวแปรนี้มีผลเฉพาะในหน้าต่าง PowerShell นั้น ค่าถูกส่งให้ Bicep ผ่านไฟล์ parameter ชั่วคราวที่สคริปต์ลบเมื่อเสร็จ และไม่ปรากฏในบรรทัดคำสั่ง ห้ามระบุข้อมูลลับในไฟล์ config
-
-App settings ของ Function (คอลัมน์ App setting ในตารางหัวข้อ 4) สคริปต์กำหนดให้จาก config โดยอัตโนมัติ หากต้องการเปลี่ยนค่า ให้แก้ไข config แล้วรัน `-Part Infra` ส่วน `TG_WORKBOOK_URL` สร้างให้ตอน deploy
-
-## 6. Assigning the Reader role
-
-ใช้เมื่อกำหนด `AssignSubscriptionReader = $false` หรือต้องการให้ Function scan subscription อื่น (สคริปต์แสดงคำสั่งนี้ไว้ท้ายการ deploy) ให้ administrator ที่มีสิทธิ์ Owner หรือ User Access Administrator ดำเนินการ
+ใช้เมื่อกำหนด `AssignSubscriptionReader = $false` หรือต้องการให้ Function scan subscription อื่น ให้ administrator ที่มีสิทธิ์ Owner หรือ User Access Administrator ดำเนินการ
 
 ```powershell
 $principalId = az functionapp identity show -g <resource-group> -n <function-app> --query principalId -o tsv
@@ -189,16 +179,18 @@ az role assignment create --assignee-object-id $principalId --assignee-principal
 
 หากยังไม่มีสิทธิ์ Reader Function จะอ่าน Resource Graph ไม่ได้และได้ผลลัพธ์ว่าง
 
-## 7. Post-deployment testing
+## 4. Testing
 
 1. **Workbook** เปิด Azure Portal ไปที่ Monitor, Workbooks, Shared แล้วเลือก "Tag Governance" และเทียบตัวเลขกับหน้า Policy compliance
-2. **Dry run** เปิด endpoint ทดสอบชั่วคราว แล้วเรียกโดยไม่ส่งอีเมลและไม่บันทึก state
+2. **Dry run** ตั้ง `EnableTestEndpoint = $true` แล้วรัน `-Part Infra` จากนั้นเรียกโดยไม่ส่งอีเมลและไม่บันทึก state
 
 ```powershell
-az functionapp config appsettings set -g <rg> -n <function-app> --settings TG_HTTP_ENABLED=true -o none
-$key = az functionapp function keys list -g <rg> -n <function-app> --function-name run_now --query default -o tsv
-curl "https://<function-app>.azurewebsites.net/api/run?code=$key&dry_run=1&force=1"
+$rg = '<resource-group>'; $fn = '<function-app>'
+$key = az functionapp function keys list -g $rg -n $fn --function-name run_now --query default -o tsv
+Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&force=1" | ConvertTo-Json -Depth 6
 ```
+
+ผลที่ถูกต้องมี `"status": "ok"` พร้อม `summary` (จำนวนรายการ) และตัวอย่างอีเมลที่ระบบจะส่ง (เมื่อมีรายการค้าง)
 
 | Parameter | Description |
 |---|---|
@@ -206,53 +198,45 @@ curl "https://<function-app>.azurewebsites.net/api/run?code=$key&dry_run=1&force
 | `force` | `1` คือข้ามการตรวจสอบว่าวันนี้เป็นวันส่งหรือไม่ |
 | `today` | วันที่ `YYYY-MM-DD` ใช้จำลองวัน เช่น +14 และ +21 วันเพื่อดู Stage 1 และ Stage 2 |
 
-3. **ส่งอีเมลจริงหนึ่งครั้ง** หลังตั้ง `MailEnabled = $true` และ deploy ด้วย `-Part Infra` ให้เรียก `dry_run=0&force=1` แล้วตรวจสอบว่าอีเมลถึงผู้รับ และมี `state.json` กับ `snapshots/<date>.json` ใน Blob container `tag-governance`
-4. **ปิด endpoint ทดสอบกลับ** ด้วย `TG_HTTP_ENABLED=false` ในคำสั่ง `appsettings set` ข้างต้น
+3. **ส่งอีเมลจริงหนึ่งครั้ง** (ถ้าต้องการ) หลังตั้ง `MailEnabled = $true` ให้เรียก `dry_run=0&force=1` แล้วตรวจว่าอีเมลถึงผู้รับ และมี `state.json` กับ `snapshots/<date>.json` ใน Blob container `tag-governance`
+4. **ปิด endpoint ทดสอบกลับ** ตั้ง `EnableTestEndpoint = $false` แล้วรัน `-Part Infra`
 
 ห้ามใช้ `dry_run=0` ร่วมกับ `today` ที่เป็นวันในอนาคต เพราะจะบันทึก state ที่ไม่ตรงกับความเป็นจริง
 
-## 8. Rollout, update and removal
+## 5. Update and removal
 
-**Rollout แบบเป็นระยะ**
+**Update** แก้โค้ดหรือ `holidays.json` แล้วรัน `-Part Code` แก้ config แล้วรัน `-Part Infra`
 
-1. ตั้ง `MailEnabled = $false` และ deploy ระบบเริ่มเก็บ age ควรทำก่อนวันส่งอีเมลฉบับแรกอย่างน้อย 1 สัปดาห์ หากช้ากว่านั้น ให้เรียก `run?dry_run=0&force=1` หนึ่งครั้งเพื่อเริ่มเก็บ snapshot
-2. เปลี่ยนเป็น `MailEnabled = $true` แล้วรัน `-Part Infra` โดยตั้ง `MailTo`, `MailCc` และ `MailCcEscalation` ไว้ตั้งแต่ต้นได้ เพราะ `MailCcEscalation` มีผลเฉพาะอีเมลที่มีรายการ Stage 2 เท่านั้น
-
-**Update** แก้ไขโค้ดหรือ `holidays.json` ด้วย `-Part Code` และแก้ไข config ด้วย `-Part Infra`
-
-**Removal และเริ่มใหม่** ใช้ `scripts/teardown.ps1` ซึ่งอ่าน config เดียวกับ `deploy.ps1` และลบเฉพาะ resource ที่ deployment ของโปรเจกต์นี้สร้าง (ไม่แตะ resource อื่นใน RG) พร้อมเพิกถอนสิทธิ์ Reader และ purge Key Vault / Log Analytics ที่ค้างใน soft-delete ซึ่งหากไม่ purge การ deploy ใหม่ด้วยชื่อเดิมจะชน
+**Removal และเริ่มใหม่** ใช้ `scripts/teardown.ps1` ซึ่งอ่าน config เดียวกับ `deploy.ps1` และลบเฉพาะ resource ที่ deployment ของโปรเจกต์นี้สร้าง (ไม่แตะ resource อื่นใน Resource Group) พร้อมเพิกถอนสิทธิ์ Reader และ purge Key Vault / Log Analytics ที่ค้างใน soft-delete ซึ่งหากไม่ purge การ deploy ใหม่ด้วยชื่อเดิมจะชน
 
 ```powershell
-./scripts/teardown.ps1                               # ดูรายการที่จะลบ (ยังไม่ลบ)
-./scripts/teardown.ps1 -BackupTo ./backup -Execute   # สำรอง state แล้วลบ (ต้องพิมพ์ชื่อ RG ยืนยัน)
-./scripts/deploy.ps1 -RestoreFrom ./backup           # deploy ใหม่ และคืน state ให้ age นับต่อ
+./scripts/teardown.ps1 -ConfigPath ./config/prod.psd1                              # ดูรายการที่จะลบ (ยังไม่ลบ)
+./scripts/teardown.ps1 -ConfigPath ./config/prod.psd1 -BackupTo ./backup -Execute # สำรอง state แล้วลบ (ต้องพิมพ์ชื่อ Resource Group ยืนยัน)
+./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -RestoreFrom ./backup          # deploy ใหม่ และคืน state ให้อายุของรายการนับต่อ
 ```
 
-ถ้าไม่ใช้ `-BackupTo` ไฟล์ `state.json` จะหาย และอายุของรายการทั้งหมดเริ่มนับใหม่ ใช้ `-DeleteResourceGroup` เมื่อ RG สร้างมาเพื่อระบบนี้โดยเฉพาะ ทั้งนี้โฟลเดอร์ backup มีชื่อ resource จริง ห้าม commit (เพิ่มใน `.gitignore` แล้ว)
+- ถ้าไม่ใช้ `-BackupTo` ไฟล์ `state.json` จะหาย และอายุของรายการทั้งหมดเริ่มนับใหม่
+- ใช้ `-DeleteResourceGroup` เมื่อ Resource Group สร้างมาเพื่อระบบนี้โดยเฉพาะ
+- โฟลเดอร์ `backup/` มีชื่อ resource จริง ห้าม commit (ถูก `.gitignore` กันไว้แล้ว)
 
-**Checklist ก่อนใช้งานจริง**
-
-- [ ] ทดสอบใน lab ครบตามหัวข้อ 7 และได้รับอนุมัติตามขั้นตอนของบริษัท
-- [ ] ยืนยันสถานะของ ACS Email ที่ https://aka.ms/acs-retirement และขอให้ผู้ดูแลอีเมลอนุญาตผู้ส่งจาก `azurecomm.net` (อีเมลมักมี banner "external sender" และอาจเข้า Junk)
-- [ ] ตรวจสอบ `function/holidays.json` กับปฏิทินของบริษัท
-- [ ] กำหนดผู้ดูแล Function ภายหลังสิ้นสุดโครงการ
-- [ ] จำกัดผู้มีสิทธิ์ Contributor บน Resource Group เพราะ storage key ยังอยู่ใน App settings (Consumption plan ต้องใช้ key นี้กับ Azure Files จึงย้ายไป Key Vault ไม่ได้) ส่วน ACS connection string เก็บใน Key Vault และ Function อ่านผ่าน managed identity (Key Vault Secrets User) การ deploy ครั้งแรกจึงต้องใช้บัญชีที่สร้าง role assignment ได้ (Owner หรือ User Access Administrator)
-
-## 9. Troubleshooting
+## 6. Troubleshooting
 
 | Symptom | Cause and resolution |
 |---|---|
 | สคริปต์แจ้งว่า `az login` อยู่คนละ subscription | ใช้ `az account set --subscription <id>` |
-| `AuthorizationFailed` ขณะมอบสิทธิ์ Reader | ไม่มีสิทธิ์ Owner หรือ User Access Administrator ให้ตั้ง `AssignSubscriptionReader = $false` และมอบสิทธิ์ตามหัวข้อ 6 |
+| Bicep compile ไม่ผ่าน หรือ crash | Bicep เก่าเกินไป รัน `az bicep upgrade` |
+| `AuthorizationFailed` ขณะมอบสิทธิ์ Reader หรือ Key Vault | ไม่มีสิทธิ์ Owner หรือ User Access Administrator ให้ administrator deploy หรือมอบสิทธิ์ตามหัวข้อ 3 |
+| `TG_ACS_CONNECTION_STRING` ขึ้นเครื่องหมายแดง | สิทธิ์ยังไม่แพร่กระจาย รอ 2-3 นาที แล้วรีสตาร์ต Function App |
 | ชื่อ resource ซ้ำ | เปลี่ยน `NamePrefix` |
+| deploy ใหม่ชนชื่อ Key Vault หรือ Log Analytics | ของเก่าค้างใน soft-delete รัน `teardown.ps1` ซึ่ง purge ให้ หรือเปลี่ยน `NamePrefix` |
 | Function ได้ผลลัพธ์ว่าง | ตรวจสอบว่ามีสิทธิ์ Reader, `PolicyAssignmentName` ตรงกับ assignment และ Policy ประเมินเสร็จแล้ว (ใช้ `az policy state trigger-scan` ได้) |
 | ไม่ได้รับอีเมล | `MailEnabled` ยังเป็น `$false` อีเมลอยู่ใน Junk หรือทุกรายการผ่านแล้ว (ระบบไม่ส่งอีเมลเมื่อไม่มีรายการค้าง) |
-| `/api/run` ตอบ 404 | `EnableTestEndpoint` ยังเป็น `$false` ดูหัวข้อ 7 |
+| `/api/run` ตอบ 404 | `EnableTestEndpoint` ยังเป็น `$false` |
 
-## 10. For developers
+## 7. For developers
 
-repository นี้เป็น public ก่อน commit และ push ทุกครั้งควรตรวจสอบด้วยตนเองว่าไม่มีข้อมูลจริง เช่น subscription ID, อีเมล, ชื่อบริษัท หรือชื่อระบบภายใน ปะปนอยู่ ด้วย `git status` และ `git diff --staged` ไฟล์ config จริงและไฟล์ข้อมูล (`*.csv`, `*.xlsx`, `state.json`) ถูกกำหนดใน `.gitignore` แล้ว ควรเปิด Secret scanning และ Push protection ใน GitHub ด้วย ซึ่งตรวจจับ key และ token ได้ แต่ไม่ครอบคลุม ID อีเมล และชื่อบริษัท
+repository นี้เป็น public ก่อน commit และ push ทุกครั้งควรตรวจสอบด้วยตนเองว่าไม่มีข้อมูลจริง เช่น subscription ID, อีเมล, ชื่อบริษัท หรือชื่อระบบภายใน ปะปนอยู่ ด้วย `git status` และ `git diff --staged` ไฟล์ config จริงและไฟล์ข้อมูล (`*.csv`, `*.xlsx`, `state.json`) ถูกกำหนดใน `.gitignore` แล้ว ควรเปิด Secret scanning และ Push protection ใน GitHub ด้วย
 
 - **รัน test suite** (ไม่ต้องใช้ Azure) ด้วย `pip install -r function/requirements.txt pytest` แล้ว `python -m pytest tests -q`
-- **รัน Function ในเครื่อง** คัดลอก `function/local.settings.sample.json` เป็น `function/local.settings.json` (ไม่ถูก push) ระบุค่า `TG_*` ตามตารางหัวข้อ 4 แล้วรัน `func start`
+- **รัน Function ในเครื่อง** คัดลอก `function/local.settings.sample.json` เป็น `function/local.settings.json` (ไม่ถูก push) ระบุค่า `TG_*` ตามตารางหัวข้อ 2 แล้วรัน `func start`
 - **กรณีเผลอ push ข้อมูลจริง** ให้ถือว่าข้อมูลรั่วไหลแล้ว เปลี่ยนค่า key ที่เกี่ยวข้องทันที แจ้งทีม security ล้างประวัติด้วย `git filter-repo` (หรือสร้าง repository ใหม่จากโค้ดที่สะอาด) แล้ว force-push

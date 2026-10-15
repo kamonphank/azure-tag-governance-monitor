@@ -1,7 +1,7 @@
 # Quickstart
 
 ต้องมี PowerShell, Azure CLI (`az login` แล้ว) และสิทธิ์ Owner / User Access Administrator ที่ subscription
-(ถ้าไม่มี ใส่ `AssignSubscriptionReader = $false` แล้วให้ admin มอบสิทธิ์ Reader ทีหลัง ดู DEPLOY.md หัวข้อ 6)
+(ถ้าไม่มี ใส่ `AssignSubscriptionReader = $false` แล้วให้ admin มอบสิทธิ์ Reader ทีหลัง ดู DEPLOY.md หัวข้อ 3)
 
 ## เตรียมครั้งเดียว
 ```powershell
