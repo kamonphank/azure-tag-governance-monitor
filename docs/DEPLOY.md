@@ -229,6 +229,7 @@ Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&for
 | `TG_ACS_CONNECTION_STRING` ขึ้นเครื่องหมายแดง | สิทธิ์ยังไม่แพร่กระจาย รอ 2-3 นาที แล้วรีสตาร์ต Function App |
 | ชื่อ resource ซ้ำ | เปลี่ยน `NamePrefix` |
 | deploy ใหม่ชนชื่อ Key Vault หรือ Log Analytics | ของเก่าค้างใน soft-delete รัน `teardown.ps1` ซึ่ง purge ให้ หรือเปลี่ยน `NamePrefix` |
+| Function App ไม่มี function ในหน้า Overview หลัง deploy | รัน `./scripts/deploy.ps1 -Part Code` อีกครั้ง (สคริปต์รุ่นก่อนสร้าง zip ด้วย `\` เมื่อรันบน Windows PowerShell 5.1 และ `-Part Infra` ลบ `WEBSITE_RUN_FROM_PACKAGE` ทิ้ง) หากยังว่าง ดู import error ที่ Log stream หรือ Application Insights |
 | Function ได้ผลลัพธ์ว่าง | ตรวจสอบว่ามีสิทธิ์ Reader, `PolicyAssignmentName` ตรงกับ assignment และ Policy ประเมินเสร็จแล้ว (ใช้ `az policy state trigger-scan` ได้) |
 | ไม่ได้รับอีเมล | `MailEnabled` ยังเป็น `$false` อีเมลอยู่ใน Junk หรือทุกรายการผ่านแล้ว (ระบบไม่ส่งอีเมลเมื่อไม่มีรายการค้าง) |
 | `/api/run` ตอบ 404 | `EnableTestEndpoint` ยังเป็น `$false` |

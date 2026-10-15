@@ -155,6 +155,15 @@ else { Warn 'AssignSubscriptionReader = $false: ต้องให้ admin ม�
 
 # ---------- เตรียมไฟล์พารามิเตอร์ (ไม่ใส่ค่าลงบรรทัดคำสั่ง) ----------
 $paramFile = $null
+function Get-RunFromPackage {
+  if (-not $rgExists) { return $null }
+  $fn = & az functionapp list --resource-group $rg --query "[?starts_with(name,'$prefix-func-')].name | [0]" -o tsv
+  if (-not $fn) { return $null }
+  $v = & az functionapp config appsettings list --resource-group $rg --name $fn --query "[?name=='WEBSITE_RUN_FROM_PACKAGE'].value | [0]" -o tsv
+  if ($LASTEXITCODE -ne 0) { return $null }
+  return $v
+}
+
 function Write-ParamFile {
   $p = [ordered]@{
     mailTo = ($mailTo -join ','); mailCc = ($mailCc -join ','); mailCcEscalation = ($mailCcEsc -join ',')
@@ -164,6 +173,9 @@ function Write-ParamFile {
     enableTestEndpoint = $testEndpoint
   }
   if (-not $createAcs) { $p.acsConnectionString = $acsConn; $p.mailSender = $acsSender }
+  # Bicep เขียน appSettings ทับทั้งชุด ถ้าไม่ส่งค่าเดิมกลับไป โค้ดที่ deploy แล้วจะหาย (Function App ว่าง)
+  $pkg = Get-RunFromPackage
+  if ($pkg) { $p.runFromPackage = $pkg }
   $wrap = [ordered]@{}
   foreach ($k in $p.Keys) { $wrap[$k] = @{ value = $p[$k] } }
   $doc = [ordered]@{
@@ -231,13 +243,34 @@ try {
     Copy-Item "$root/function/*" $stage -Recurse -Exclude '__pycache__', 'local.settings.json', 'local.settings.sample.json'
     Get-ChildItem $stage -Recurse -Directory -Filter '__pycache__' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
     $zip = Join-Path ([IO.Path]::GetTempPath()) "tg-func-$(Get-Random).zip"
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip)
+    # สร้าง entry เองด้วย '/' : ZipFile.CreateFromDirectory บน Windows PowerShell 5.1 ใช้ '\' คั่น path
+    # ทำให้บน Linux ไม่มีโฟลเดอร์ tag_governance/ -> import พัง -> Function App ไม่เห็น function เลย
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    $stageFull = (Resolve-Path $stage).Path.TrimEnd('\', '/')
+    $archive = [IO.Compression.ZipFile]::Open($zip, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+      foreach ($f in Get-ChildItem $stageFull -Recurse -File) {
+        $entry = $f.FullName.Substring($stageFull.Length + 1).Replace('\', '/')
+        [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $f.FullName, $entry)
+      }
+    }
+    finally { $archive.Dispose() }
     Step "ส่งโค้ดขึ้น Function App $funcName (build บน Azure)"
     & az functionapp deployment source config-zip --resource-group $rg --name $funcName --src $zip --build-remote true -o none
     $code = $LASTEXITCODE
     Remove-Item $stage -Recurse -Force; Remove-Item $zip -Force
     if ($code -ne 0) { Fail 'ส่งโค้ดไม่สำเร็จ ดูข้อความด้านบน' }
+    Step 'ตรวจว่า Function App เห็น function'
+    $names = @()
+    for ($i = 0; $i -lt 6 -and -not $names; $i++) {
+      Start-Sleep -Seconds 10
+      $names = @(& az functionapp function list --resource-group $rg --name $funcName --query '[].name' -o tsv | Where-Object { $_ })
+    }
+    if ($names) { Info "พบ function: $($names -join ', ')" }
+    else {
+      Write-Warning ("ส่งโค้ดสำเร็จแต่ยังไม่เห็น function ใน $funcName (มักเกิดจาก import error ตอนโหลด function_app.py)`n" +
+        "    ดู log: Portal > $funcName > Log stream หรือ Application Insights > traces / exceptions")
+    }
   }
 
   # ---------- คืน state จาก backup ----------

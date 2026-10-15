@@ -48,6 +48,10 @@ param mailEnabled bool = true
 @description('ลิงก์ Workbook ที่จะใส่ในเมล (เว้นว่าง = ระบบสร้างให้จากชื่อ Workbook)')
 param workbookUrlOverride string = ''
 
+@secure()
+@description('ค่า WEBSITE_RUN_FROM_PACKAGE เดิมของ Function (สคริปต์อ่านมาให้) เพื่อไม่ให้การ deploy โครงสร้างซ้ำลบโค้ดที่ส่งไปแล้ว')
+param runFromPackage string = ''
+
 var uniq = uniqueString(resourceGroup().id)
 var storageName = toLower('st${take(namePrefix, 8)}${take(uniq, 12)}')
 var funcName = '${namePrefix}-func-${take(uniq, 6)}'
@@ -161,7 +165,8 @@ resource func 'Microsoft.Web/sites@2023-12-01' = {
       linuxFxVersion: 'Python|3.11'
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
-      appSettings: [
+      // appSettings แทนที่ค่าทั้งชุด จึงต้องใส่ WEBSITE_RUN_FROM_PACKAGE เดิมกลับไป (Linux Consumption ใช้ค่านี้ชี้ไปที่โค้ด)
+      appSettings: concat([
         { name: 'AzureWebJobsStorage', value: storageConn }
         { name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING', value: storageConn }
         { name: 'WEBSITE_CONTENTSHARE', value: toLower(funcName) }
@@ -182,7 +187,9 @@ resource func 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'TG_MAIL_SENDER', value: sender }
         { name: 'TG_ACS_CONNECTION_STRING', value: '@Microsoft.KeyVault(SecretUri=${acsSecret.properties.secretUri})' }
         { name: 'TG_WORKBOOK_URL', value: workbookUrl }
-      ]
+      ], empty(runFromPackage) ? [] : [
+        { name: 'WEBSITE_RUN_FROM_PACKAGE', value: runFromPackage }
+      ])
     }
   }
 }
