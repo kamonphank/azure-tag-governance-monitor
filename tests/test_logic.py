@@ -1,4 +1,6 @@
+import sys
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -251,3 +253,24 @@ def test_http_json_response_declares_utf8():
     r = function_app._json_response({"subject": "ค้าง 8 รายการ"})
     assert r.mimetype == "application/json; charset=utf-8"
     assert json.loads(r.get_body().decode("utf-8"))["subject"] == "ค้าง 8 รายการ"
+
+
+def test_workbook_matches_queries():
+    # Workbook ต้องสร้างจาก queries.py เสมอ (python scripts/build_workbook.py)
+    import subprocess
+
+    root = Path(__file__).resolve().parent.parent
+    r = subprocess.run([sys.executable, str(root / "scripts" / "build_workbook.py"), "--check"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr or r.stdout
+
+
+def test_email_groups_by_action_and_shows_detail():
+    items = [
+        {**item("a", name="RG-A", owner="a@example.com,b@example.com"), "detail": "ไม่มี department", "who": "ถาม owner"},
+        {**item("b", name="RG-B", owner=""), "cause": "ไม่มี owner tag", "detail": "ไม่มี owner", "who": "หา owner ก่อน"},
+    ]
+    email, _, _ = core.run_report(items, core.empty_state(), date(2026, 10, 19))
+    h = email["html"]
+    assert "ไม่มี department" in h and h.index("ถาม owner") < h.index("หา owner ก่อน")
+    assert "a@example.com<br>b@example.com" in h  # owner หลายคนแยกบรรทัด ไม่ติดเป็นลิงก์เดียว
+    assert h.count("RG-A") == 1  # รายการใหม่ไม่ถูกแสดงซ้ำในตารางแยก

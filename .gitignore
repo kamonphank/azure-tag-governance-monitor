@@ -39,3 +39,6 @@ tmp
 
 # backup จาก teardown.ps1 -BackupTo (มี state และชื่อ resource จริง)
 backup/
+
+# ตัวอย่างอีเมลจาก scripts/preview_email.py
+email-preview.*
