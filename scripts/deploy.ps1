@@ -63,7 +63,7 @@ if ($RestoreFrom -and -not (Test-Path (Join-Path $RestoreFrom 'state.json'))) {
 
 $known = @('SubscriptionId', 'ResourceGroup', 'Location', 'ResourceGroupTags', 'NamePrefix', 'PolicyAssignmentName',
   'ScanSubscriptionIds', 'RgNameRegex', 'SlaDays', 'MailEnabled', 'MailTo', 'MailCc', 'MailCcEscalation',
-  'CreateAcsEmail', 'ExistingAcsSender', 'AssignSubscriptionReader', 'EnableTestEndpoint')
+  'CreateAcsEmail', 'ExistingAcsSender', 'AssignSubscriptionReader', 'EnableTestEndpoint', 'EnableManualSend')
 foreach ($k in $cfg.Keys) { if ($known -notcontains $k) { Fail "config มี key ที่ไม่รู้จัก '$k' (พิมพ์ผิดหรือเปล่า) key ที่ใช้ได้: $($known -join ', ')" } }
 
 function Cfg($key, $default) { if ($cfg.ContainsKey($key) -and $null -ne $cfg[$key]) { $cfg[$key] } else { $default } }
@@ -108,6 +108,7 @@ if ($errors.Count -gt 0) { Fail ("config ไม่ถูกต้อง:`n  - " 
 $mailEnabled = [bool](Cfg 'MailEnabled' $false)
 $assignReader = [bool](Cfg 'AssignSubscriptionReader' $true)
 $testEndpoint = [bool](Cfg 'EnableTestEndpoint' $false)
+$manualSend = [bool](Cfg 'EnableManualSend' $false)
 $tags = @()
 $rgTags = Cfg 'ResourceGroupTags' @{}
 foreach ($k in $rgTags.Keys) { $tags += "$k=$($rgTags[$k])" }
@@ -150,6 +151,7 @@ Info "Cc เมลขั้น 2:     $(if ($mailCcEsc.Count) { $mailCcEsc -join
 Info "ACS Email:        $(if ($createAcs) { 'สร้างใหม่ (managed domain)' } else { "ใช้ของเดิม ($acsSender)" })"
 Info "Policy assignment ที่ตรวจ: $(Cfg 'PolicyAssignmentName' 'rg-tag-governance-audit')"
 Info "Endpoint ทดสอบ /api/run:   $(if ($testEndpoint) { 'เปิด (อย่าลืมปิดหลังทดสอบ)' } else { 'ปิด' })"
+Info "ส่งเมลทันที /api/send:     $(if ($manualSend) { 'เปิด' } else { 'ปิด' })"
 if ($assignReader) { Warn "จะให้สิทธิ์ Reader แก่ Function (managed identity) ที่ระดับ subscription $subId  <- ต้องใช้ Owner / User Access Administrator" }
 else { Warn 'AssignSubscriptionReader = $false: ต้องให้ admin มอบสิทธิ์ Reader ให้ Function เองหลัง deploy (คำสั่งอยู่ท้ายสคริปต์)' }
 
@@ -170,7 +172,7 @@ function Write-ParamFile {
     namePrefix = $prefix; assignmentName = "$(Cfg 'PolicyAssignmentName' 'rg-tag-governance-audit')"
     subscriptionIds = ($scanIds -join ','); rgNameRegex = $rgRegex; slaDays = $sla
     mailEnabled = $mailEnabled; createAcs = $createAcs; assignSubscriptionReader = $assignReader
-    enableTestEndpoint = $testEndpoint
+    enableTestEndpoint = $testEndpoint; enableManualSend = $manualSend
   }
   if (-not $createAcs) { $p.acsConnectionString = $acsConn; $p.mailSender = $acsSender }
   # Bicep เขียน appSettings ทับทั้งชุด ถ้าไม่ส่งค่าเดิมกลับไป โค้ดที่ deploy แล้วจะหาย (Function App ว่าง)
@@ -303,6 +305,9 @@ try {
 
 3) เปิด Workbook: Azure Portal > Monitor > Workbooks > Shared > "Tag Governance"
 4) เมื่อพร้อมส่งเมลจริง: ตั้ง MailEnabled = `$true ใน config แล้วรัน  ./scripts/deploy.ps1 -Part Infra
+5) ส่งเมลทันทีนอกรอบ (ต้องตั้ง EnableManualSend = `$true):
+   `$key = az functionapp function keys list -g $rg -n $funcName --function-name send_now --query default -o tsv
+   curl -X POST "https://$funcName.azurewebsites.net/api/send?code=`$key"
 "@
 }
 finally {

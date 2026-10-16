@@ -21,13 +21,21 @@ def http_enabled() -> bool:
     return os.environ.get("TG_HTTP_ENABLED", "false").strip().lower() in ("true", "1", "yes")
 
 
+def manual_send_enabled() -> bool:
+    """endpoint /api/send (ส่งเมลทันทีตอนไหนก็ได้) ปิดเป็นค่าเริ่มต้น เปิดด้วย TG_MANUAL_SEND_ENABLED=true"""
+    return os.environ.get("TG_MANUAL_SEND_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+
+
 def today_th() -> date:
     return datetime.now(TZ).date()
 
 
-def run(today: date | None = None, dry_run: bool = True, force: bool = False, items: list[dict] | None = None, store=None) -> dict:
+def run(
+    today: date | None = None, dry_run: bool = True, force: bool = False, items: list[dict] | None = None, store=None, persist: bool = True
+) -> dict:
     """dry_run=True: ไม่ส่งเมล ไม่บันทึก state (แค่แสดงว่าจะส่งอะไร)
-    force=True: ข้ามการเช็กว่าวันนี้เป็นวันส่งหรือไม่ (ใช้ตอนทดสอบ)"""
+    force=True: ข้ามการเช็กว่าวันนี้เป็นวันส่งหรือไม่ (ใช้ตอนทดสอบ)
+    persist=False: ส่งเมลได้ แต่ไม่บันทึก state/snapshot (ใช้กับการส่งนอกรอบ ไม่ให้กระทบรอบ escalation รายสัปดาห์)"""
     today = today or today_th()
     holidays = schedule.load_holidays(HOLIDAYS_FILE)
     if not force and not schedule.is_send_day(today, holidays):
@@ -49,7 +57,7 @@ def run(today: date | None = None, dry_run: bool = True, force: bool = False, it
     state = store.get("state.json") or core.empty_state()
     email, new_state, summary = core.run_report(items, state, today, sla, os.environ.get("TG_WORKBOOK_URL", ""))
     mail_enabled = os.environ.get("TG_MAIL_ENABLED", "true").strip().lower() not in ("false", "0", "no")
-    result = {"status": "ok", "today": today.isoformat(), "summary": summary, "dry_run": dry_run, "mail_enabled": mail_enabled}
+    result = {"status": "ok", "today": today.isoformat(), "summary": summary, "dry_run": dry_run, "mail_enabled": mail_enabled, "persist": persist}
 
     if email is None:
         result["email"] = "ไม่ส่ง (ทุกรายการผ่านแล้ว)"
@@ -72,7 +80,7 @@ def run(today: date | None = None, dry_run: bool = True, force: bool = False, it
                 os.environ["TG_ACS_CONNECTION_STRING"], os.environ["TG_MAIL_SENDER"], to, cc, email["subject"], email["html"], email["text"]
             )
 
-    if not dry_run:
+    if not dry_run and persist:
         store.put("state.json", new_state)
         store.put(f"snapshots/{today.isoformat()}.json", {"date": today.isoformat(), "items": items, "summary": summary})
     return result

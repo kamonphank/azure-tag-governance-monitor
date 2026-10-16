@@ -28,4 +28,5 @@
     # ExistingAcsSender        = ''
     # AssignSubscriptionReader = $true    # $false = admin มอบสิทธิ์ Reader เอง
     # EnableTestEndpoint       = $false    # เปิดเฉพาะตอนทดสอบ
+    # EnableManualSend         = $false    # $true = เปิด POST /api/send ส่งเมลทันทีตอนไหนก็ได้
 }
