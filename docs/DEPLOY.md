@@ -149,6 +149,7 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 | `ExistingAcsSender` | เมื่อ `CreateAcsEmail = $false` | ว่าง | ที่อยู่ผู้ส่งของ ACS เดิม | `TG_MAIL_SENDER` |
 | `AssignSubscriptionReader` | No | `$true` | ให้สคริปต์มอบสิทธิ์ Reader แก่ Function | - |
 | `EnableTestEndpoint` | No | `$false` | เปิด endpoint `/api/run` สำหรับทดสอบ | `TG_HTTP_ENABLED` |
+| `EnableManualSend` | No | `$false` | เปิด endpoint `POST /api/send` สำหรับส่งอีเมลรายงานทันทีตอนไหนก็ได้ | `TG_MANUAL_SEND_ENABLED` |
 
 ข้อควรทราบ
 
@@ -156,6 +157,7 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 - **Cc** หากอีเมลใน `MailCc` และ `MailCcEscalation` ซ้ำกัน ระบบใส่เพียงครั้งเดียว
 - **สิทธิ์ Reader** สคริปต์มอบให้เฉพาะ subscription ใน `SubscriptionId` หากต้องการ scan subscription อื่น administrator ต้องมอบสิทธิ์ให้เอง
 - **`EnableTestEndpoint`** ปิดไว้เป็นค่าเริ่มต้น เพราะ `dry_run=0` ส่งอีเมลและบันทึก state ได้จริง เปิดเฉพาะตอนทดสอบ
+- **`EnableManualSend`** ใช้ส่งอีเมลนอกรอบ (นอกเหนือจากรอบอัตโนมัติวันทำงานแรกของสัปดาห์) โดยไม่บันทึก state และ snapshot รอบ escalation ของรายงานประจำสัปดาห์จึงไม่เปลี่ยน ดูหัวข้อ 4
 
 **ตัวเลือกของ `deploy.ps1`**
 
@@ -203,6 +205,15 @@ Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&for
 
 ห้ามใช้ `dry_run=0` ร่วมกับ `today` ที่เป็นวันในอนาคต เพราะจะบันทึก state ที่ไม่ตรงกับความเป็นจริง
 
+**ส่งอีเมลทันทีตอนไหนก็ได้** ตั้ง `EnableManualSend = $true` แล้วรัน `-Part Infra` จากนั้นเรียก
+
+```powershell
+$key = az functionapp function keys list -g <rg> -n <function-app> --function-name send_now --query default -o tsv
+curl -X POST "https://<function-app>.azurewebsites.net/api/send?code=$key"
+```
+
+endpoint นี้ส่งอีเมลด้วยข้อมูลล่าสุดทันทีโดยไม่สนว่าเป็นวันส่งหรือไม่ แต่ยังเคารพ `MailEnabled` และไม่ส่งเมื่อทุกรายการผ่านแล้ว ระบบไม่บันทึก state และ snapshot จากการเรียกนี้ จึงไม่ทำให้รายการขยับไป Stage 2 เร็วกว่ารอบประจำสัปดาห์ (ต่างจาก `run?dry_run=0&force=1` ที่บันทึก state)
+
 ## 5. Update and removal
 
 **Update** แก้โค้ดหรือ `holidays.json` แล้วรัน `-Part Code` แก้ config แล้วรัน `-Part Infra`
@@ -233,6 +244,7 @@ Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&for
 | Function ได้ผลลัพธ์ว่าง | ตรวจสอบว่ามีสิทธิ์ Reader, `PolicyAssignmentName` ตรงกับ assignment และ Policy ประเมินเสร็จแล้ว (ใช้ `az policy state trigger-scan` ได้) |
 | ไม่ได้รับอีเมล | `MailEnabled` ยังเป็น `$false` อีเมลอยู่ใน Junk หรือทุกรายการผ่านแล้ว (ระบบไม่ส่งอีเมลเมื่อไม่มีรายการค้าง) |
 | `/api/run` ตอบ 404 | `EnableTestEndpoint` ยังเป็น `$false` |
+| `/api/send` ตอบ 404 | `EnableManualSend` ยังเป็น `$false` ดูหัวข้อ 4 |
 
 ## 7. For developers
 

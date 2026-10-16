@@ -223,3 +223,20 @@ def test_queries_avoid_reserved_column_names():
     for q in (rg_query("rg-tag-governance-audit"), vm_query("rg-tag-governance-audit")):
         last = q.strip().splitlines()[-1]
         assert " kind =" not in last and " name =" not in last
+
+
+def test_manual_send_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("TG_MANUAL_SEND_ENABLED", raising=False)
+    assert runner.manual_send_enabled() is False
+    monkeypatch.setenv("TG_MANUAL_SEND_ENABLED", "true")
+    assert runner.manual_send_enabled() is True
+
+
+def test_runner_manual_send_any_day_without_persisting(tmp_path, env):
+    st = LocalStore(tmp_path)
+    runner.run(today=date(2026, 10, 19), dry_run=False, items=[item("a")], store=st)
+    before = st.get("state.json")
+    # วันพุธ (ไม่ใช่วันส่ง) ส่งนอกรอบได้ แต่ state/snapshot ต้องไม่เปลี่ยน
+    r = runner.run(today=date(2026, 10, 21), dry_run=False, force=True, persist=False, items=[item("a"), item("b")], store=st)
+    assert r["status"] == "ok" and len(env) == 2
+    assert st.get("state.json") == before and st.get("snapshots/2026-10-21.json") is None

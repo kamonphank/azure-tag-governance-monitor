@@ -20,6 +20,9 @@ param rgNameRegex string = ''
 @description('เปิด endpoint /api/run สำหรับทดสอบมือไหม (ค่าเริ่มต้น false = ปิด เพราะ dry_run=0 ส่งเมลและบันทึก state ได้)')
 param enableTestEndpoint bool = false
 
+@description('เปิด endpoint POST /api/send สำหรับส่งเมลรายงานทันทีตอนไหนก็ได้ไหม (ไม่บันทึก state จึงไม่กระทบรอบ escalation)')
+param enableManualSend bool = false
+
 @description('ชื่อ Policy assignment ที่ใช้ตรวจ')
 param assignmentName string = 'rg-tag-governance-audit'
 
@@ -184,6 +187,7 @@ resource func 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'TG_MAIL_CC_ESCALATION', value: mailCcEscalation }
         { name: 'TG_RG_NAME_REGEX', value: rgNameRegex }
         { name: 'TG_HTTP_ENABLED', value: string(enableTestEndpoint) }
+        { name: 'TG_MANUAL_SEND_ENABLED', value: string(enableManualSend) }
         { name: 'TG_MAIL_SENDER', value: sender }
         { name: 'TG_ACS_CONNECTION_STRING', value: '@Microsoft.KeyVault(SecretUri=${acsSecret.properties.secretUri})' }
         { name: 'TG_WORKBOOK_URL', value: workbookUrl }
