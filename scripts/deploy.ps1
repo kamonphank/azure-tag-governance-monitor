@@ -61,7 +61,7 @@ if ($RestoreFrom -and -not (Test-Path (Join-Path $RestoreFrom 'state.json'))) {
   $RestoreFrom = ''
 }
 
-$known = @('SubscriptionId', 'ResourceGroup', 'Location', 'ResourceGroupTags', 'NamePrefix', 'PolicyAssignmentName',
+$known = @('SubscriptionId', 'ResourceGroup', 'Location', 'Tags', 'ResourceGroupTags', 'NamePrefix', 'PolicyAssignmentName',
   'ScanSubscriptionIds', 'RgNameRegex', 'SlaDays', 'MailEnabled', 'MailTo', 'MailCc', 'MailCcEscalation',
   'CreateAcsEmail', 'ExistingAcsSender', 'AssignSubscriptionReader', 'EnableTestEndpoint', 'EnableManualSend')
 foreach ($k in $cfg.Keys) { if ($known -notcontains $k) { Fail "config มี key ที่ไม่รู้จัก '$k' (พิมพ์ผิดหรือเปล่า) key ที่ใช้ได้: $($known -join ', ')" } }
@@ -109,9 +109,12 @@ $mailEnabled = [bool](Cfg 'MailEnabled' $false)
 $assignReader = [bool](Cfg 'AssignSubscriptionReader' $true)
 $testEndpoint = [bool](Cfg 'EnableTestEndpoint' $false)
 $manualSend = [bool](Cfg 'EnableManualSend' $false)
+# Tags ใส่ให้ RG ที่สร้างใหม่และทุก resource ของโปรเจกต์ (ResourceGroupTags คือชื่อเดิม ยังใช้ได้)
+$tagCfg = Cfg 'Tags' (Cfg 'ResourceGroupTags' @{})
+$tagMap = [ordered]@{}
+foreach ($k in $tagCfg.Keys) { $tagMap["$k"] = "$($tagCfg[$k])" }
 $tags = @()
-$rgTags = Cfg 'ResourceGroupTags' @{}
-foreach ($k in $rgTags.Keys) { $tags += "$k=$($rgTags[$k])" }
+foreach ($k in $tagMap.Keys) { $tags += "$k=$($tagMap[$k])" }
 
 # ---------- 2) ตรวจ Azure CLI และ subscription ----------
 Step 'ตรวจ Azure CLI'
@@ -135,10 +138,10 @@ if ($rgExists) {
   $existing | Select-Object -First 15 | ForEach-Object { Info "  - $($_.n)   [$($_.t)]" }
   if ($existing.Count -gt 15) { Info "  ... และอีก $($existing.Count - 15) รายการ" }
   Warn 'จะ deploy resource ของโปรเจกต์นี้เพิ่ม/อัปเดตลงใน RG นี้ (ไม่ลบ ไม่แก้ resource อื่น และไม่แก้ tag/region ของ RG)'
-  if ($tags.Count) { Warn 'ResourceGroupTags ใน config ใช้เฉพาะ RG ใหม่ จึงไม่ถูกนำไปใช้กับ RG ที่มีอยู่แล้ว (tag เดิมของ RG ไม่เปลี่ยน)' }
+  if ($tags.Count) { Info "tag ที่จะใส่ให้ resource ของโปรเจกต์: $($tags -join ', ')  (RG ที่มีอยู่แล้วไม่ถูกแก้ tag)" }
 } else {
   Info "RG '$rg' ยังไม่มี -> จะสร้างใหม่ที่ $location"
-  if ($tags.Count) { Info "tag ที่จะใส่ให้ RG: $($tags -join ', ')" } else { Warn 'ไม่ได้ตั้ง ResourceGroupTags (ถ้า Policy ของคุณบังคับ tag บน RG ตัว RG นี้จะไม่ผ่านเอง ดู config)' }
+  if ($tags.Count) { Info "tag ที่จะใส่ให้ RG และ resource ของโปรเจกต์: $($tags -join ', ')" } else { Warn 'ไม่ได้ตั้ง Tags (ถ้า Policy ของคุณบังคับ tag บน RG ตัว RG นี้จะไม่ผ่านเอง ดู config)' }
 }
 
 Step 'สรุปสิ่งที่จะทำ'
@@ -173,6 +176,7 @@ function Write-ParamFile {
     subscriptionIds = ($scanIds -join ','); rgNameRegex = $rgRegex; slaDays = $sla
     mailEnabled = $mailEnabled; createAcs = $createAcs; assignSubscriptionReader = $assignReader
     enableTestEndpoint = $testEndpoint; enableManualSend = $manualSend
+    tags = $tagMap
   }
   if (-not $createAcs) { $p.acsConnectionString = $acsConn; $p.mailSender = $acsSender }
   # Bicep เขียน appSettings ทับทั้งชุด ถ้าไม่ส่งค่าเดิมกลับไป โค้ดที่ deploy แล้วจะหาย (Function App ว่าง)

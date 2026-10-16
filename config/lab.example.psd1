@@ -5,8 +5,8 @@
     Location       = 'southeastasia'
     MailTo         = @('you@yourcompany.com')          # อีเมลจริงของคุณเอง
 
-    ResourceGroupTags = @{
-        # ใส่ tag ที่ Policy ของคุณบังคับ เพื่อให้ RG แล็บผ่านเอง
+    Tags = @{
+        # ใส่ tag ที่ Policy ของคุณบังคับ (ใส่ให้ RG แล็บที่สร้างใหม่และทุก resource)
     }
 
     NamePrefix         = 'tgLab'

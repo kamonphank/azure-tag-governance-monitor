@@ -68,7 +68,7 @@ Copy-Item config/team.example.psd1 config/prod.psd1
     SubscriptionId    = '<subscription-id>'
     ResourceGroup     = '<resource-group>'
     Location          = 'southeastasia'
-    ResourceGroupTags = @{ '<tag-name>' = '<value>' }   # ตามที่ Policy บังคับ (ใช้เฉพาะ Resource Group ที่สร้างใหม่)
+    Tags              = @{ '<tag-name>' = '<value>' }   # ตามที่ Policy บังคับ ใส่ให้ Resource Group ใหม่และทุก resource
     MailTo            = @('<responsible-person-email>')  # ผู้รับอีเมลสรุปทุกฉบับ
     MailCc            = @()                              # Cc ทุกฉบับ (ไม่บังคับ)
     MailCcEscalation  = @('<manager-email>')             # Cc เพิ่มเมื่อมีรายการค้างเกินกำหนดสองรอบ
@@ -96,7 +96,7 @@ Copy-Item config/team.example.psd1 config/prod.psd1
 สคริปต์ถามยืนยันก่อนทุกครั้ง
 
 - Resource Group ใหม่: พิมพ์ `yes`
-- Resource Group ที่มีอยู่แล้ว: พิมพ์ **ชื่อ Resource Group** (สคริปต์เพิ่ม resource ของโปรเจกต์นี้ ไม่ลบหรือแก้ resource อื่น และไม่แก้ tag หรือ region ของ Resource Group)
+- Resource Group ที่มีอยู่แล้ว: พิมพ์ **ชื่อ Resource Group** (สคริปต์เพิ่ม resource ของโปรเจกต์นี้ ไม่ลบหรือแก้ resource อื่น และไม่แก้ tag หรือ region ของ Resource Group ส่วน `Tags` ใส่ให้เฉพาะ resource ของโปรเจกต์นี้)
 
 จากนั้นสคริปต์สร้าง resource ทั้งชุด (Storage, Function App, Key Vault, Log Analytics, Application Insights, Workbook, ACS Email) ให้สิทธิ์ Reader แก่ Function แล้วส่งโค้ดขึ้น Function App ท้ายสุดสคริปต์พิมพ์ขั้นตอนถัดไปให้
 
@@ -154,7 +154,7 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 | `ResourceGroup` | Yes | - | ชื่อ Resource Group (มีแล้วจะ deploy เพิ่ม ยังไม่มีจะสร้างใหม่) | - |
 | `Location` | Yes | - | region ของ Resource Group ใหม่ เช่น `southeastasia` | - |
 | `MailTo` | Yes | - | ผู้รับหลักของอีเมลสรุปทุกฉบับ ต้องเป็นอีเมลจริง | `TG_MAIL_TO` |
-| `ResourceGroupTags` | No | `@{}` | tag ของ Resource Group ที่สร้างใหม่เท่านั้น ควรครบตามที่ Policy บังคับ เพราะ Resource Group นี้ถูกตรวจด้วย | - |
+| `Tags` | No | `@{}` | tag ที่ใส่ให้ Resource Group ที่สร้างใหม่และทุก resource ของโปรเจกต์ (Storage, Function App, Key Vault ฯลฯ) ควรครบตามที่ Policy บังคับ Resource Group ที่มีอยู่แล้วไม่ถูกแก้ tag (`ResourceGroupTags` คือชื่อเดิม ยังใช้ได้) | - |
 | `NamePrefix` | No | `tagGov` | คำนำหน้าชื่อ resource (ตัวอักษรหรือตัวเลข 1 ถึง 8 ตัว) | - |
 | `PolicyAssignmentName` | No | `rg-tag-governance-audit` | ชื่อ Policy assignment (ไม่ใช่ ID เต็ม) ตรวจสอบด้วย `az policy assignment list --query "[].name" -o tsv` | `TG_ASSIGNMENT_NAME` |
 | `ScanSubscriptionIds` | No | `@()` | จำกัด subscription ที่ scan ว่างคือทุก subscription ที่ Function อ่านได้ | `TG_SUBSCRIPTION_IDS` |

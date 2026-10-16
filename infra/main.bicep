@@ -5,6 +5,9 @@ targetScope = 'resourceGroup'
 @description('Region ของ resource (ใช้ region เดียวกับ RG ได้เลย)')
 param location string = resourceGroup().location
 
+@description('tag ที่ใส่ให้ทุก resource ของโปรเจกต์นี้ (มาจาก Tags ใน config)')
+param tags object = {}
+
 @description('คำนำหน้าชื่อ resource (ตัวพิมพ์เล็ก/ตัวเลข ไม่เกิน 8 ตัว)')
 @maxLength(8)
 param namePrefix string = 'tagGov'
@@ -68,6 +71,7 @@ var workbookGuid = guid(resourceGroup().id, 'tag-governance-workbook')
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageName
   location: location
+  tags: tags
   sku: { name: 'Standard_LRS' }
   kind: 'StorageV2'
   properties: {
@@ -83,11 +87,13 @@ var storageConn = 'DefaultEndpointsProtocol=https;AccountName=${storage.name};Ac
 resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: lawName
   location: location
+  tags: tags
   properties: { sku: { name: 'PerGB2018' }, retentionInDays: 30 }
 }
 resource ai 'Microsoft.Insights/components@2020-02-02' = {
   name: aiName
   location: location
+  tags: tags
   kind: 'web'
   properties: { Application_Type: 'web', WorkspaceResourceId: law.id }
 }
@@ -96,17 +102,20 @@ resource ai 'Microsoft.Insights/components@2020-02-02' = {
 resource emailService 'Microsoft.Communication/emailServices@2023-04-01' = if (createAcs) {
   name: '${namePrefix}-email-${take(uniq, 6)}'
   location: 'global'
+  tags: tags
   properties: { dataLocation: 'Asia Pacific' }
 }
 resource emailDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' = if (createAcs) {
   parent: emailService
   name: 'AzureManagedDomain'
   location: 'global'
+  tags: tags
   properties: { domainManagement: 'AzureManaged' }
 }
 resource acs 'Microsoft.Communication/communicationServices@2023-04-01' = if (createAcs) {
   name: '${namePrefix}-acs-${take(uniq, 6)}'
   location: 'global'
+  tags: tags
   properties: {
     dataLocation: 'Asia Pacific'
     linkedDomains: [ emailDomain.id ]
@@ -119,6 +128,7 @@ var sender = createAcs ? 'DoNotReply@${emailDomain!.properties.mailFromSenderDom
 resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: kvName
   location: location
+  tags: tags
   properties: {
     sku: { family: 'A', name: 'standard' }
     tenantId: subscription().tenantId
@@ -136,6 +146,7 @@ resource acsSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
 resource workbook 'Microsoft.Insights/workbooks@2023-06-01' = {
   name: workbookGuid
   location: location
+  tags: tags
   kind: 'shared'
   properties: {
     displayName: 'Tag Governance — รายการที่ยังไม่ผ่าน'
@@ -151,6 +162,7 @@ var workbookUrl = empty(workbookUrlOverride) ? 'https://portal.azure.com/#blade/
 resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
   name: planName
   location: location
+  tags: tags
   kind: 'linux'
   sku: { name: 'Y1', tier: 'Dynamic' }
   properties: { reserved: true }
@@ -159,6 +171,7 @@ resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
 resource func 'Microsoft.Web/sites@2023-12-01' = {
   name: funcName
   location: location
+  tags: tags
   kind: 'functionapp,linux'
   identity: { type: 'SystemAssigned' }
   properties: {

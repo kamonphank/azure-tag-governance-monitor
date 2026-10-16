@@ -5,8 +5,8 @@
     Location       = 'southeastasia'
     MailTo         = @('team-mailbox@yourcompany.com')      # กล่องเมลของทีม
 
-    ResourceGroupTags = @{
-        # ใส่ tag ที่ Policy ของคุณบังคับ
+    Tags = @{
+        # ใส่ tag ที่ Policy ของคุณบังคับ (ใส่ให้ RG ที่สร้างใหม่และทุก resource)
     }
 
     MailCcEscalation   = @('manager@yourcompany.com')       # ผู้จัดการที่ถูก Cc เมื่อรายการค้างเลย 2 สัปดาห์
