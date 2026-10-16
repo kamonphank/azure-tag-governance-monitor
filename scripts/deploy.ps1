@@ -84,7 +84,7 @@ $mailTo = AsList (Cfg 'MailTo' @())
 $mailCc = AsList (Cfg 'MailCc' @())
 $mailCcEsc = AsList (Cfg 'MailCcEscalation' @())
 if ($mailTo.Count -eq 0) { $errors.Add('MailTo ต้องมีอย่างน้อย 1 อีเมล') }
-foreach ($m in @($mailTo + $mailCc + $mailCcEsc)) {
+foreach ($m in (@($mailTo) + @($mailCc) + @($mailCcEsc))) {
   if ($m -notmatch $mailRx) { $errors.Add("อีเมลไม่ถูกต้อง: '$m'") }
   elseif ($m -match '@example\.(com|org|net)$') { $errors.Add("อีเมล '$m' ยังเป็นค่าตัวอย่าง ให้ใส่อีเมลจริง") }
 }
