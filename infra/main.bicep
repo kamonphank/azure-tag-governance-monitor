@@ -54,6 +54,10 @@ param mailEnabled bool = true
 @description('ลิงก์ Workbook ที่จะใส่ในเมล (เว้นว่าง = ระบบสร้างให้จากชื่อ Workbook)')
 param workbookUrlOverride string = ''
 
+@description('เก็บ snapshot รายวันใน Blob กี่วันก่อนลบอัตโนมัติ (snapshot มีค่า tag owner ซึ่งเป็นอีเมลของคน จึงไม่ควรเก็บตลอดไป ไม่กระทบ state.json)')
+@minValue(30)
+param snapshotRetentionDays int = 365
+
 @secure()
 @description('ค่า WEBSITE_RUN_FROM_PACKAGE เดิมของ Function (สคริปต์อ่านมาให้) เพื่อไม่ให้การ deploy โครงสร้างซ้ำลบโค้ดที่ส่งไปแล้ว')
 param runFromPackage string = ''
@@ -81,6 +85,35 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     supportsHttpsTrafficOnly: true
   }
 }
+// soft delete: ถ้า state.json ถูกลบหรือเขียนทับผิด กู้คืนได้ภายใน 14 วัน (ถ้า state หาย อายุของทุกรายการจะเริ่มนับใหม่)
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+  properties: {
+    deleteRetentionPolicy: { enabled: true, days: 14 }
+    containerDeleteRetentionPolicy: { enabled: true, days: 14 }
+  }
+}
+// ลบ snapshot ที่เก่ากว่า snapshotRetentionDays (เฉพาะโฟลเดอร์ snapshots/ ใน container tag-governance)
+resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
+  parent: storage
+  name: 'default'
+  properties: {
+    policy: {
+      rules: [
+        {
+          enabled: true
+          name: 'expire-snapshots'
+          type: 'Lifecycle'
+          definition: {
+            filters: { blobTypes: [ 'blockBlob' ], prefixMatch: [ 'tag-governance/snapshots/' ] }
+            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: snapshotRetentionDays } } }
+          }
+        }
+      ]
+    }
+  }
+}
 var storageConn = 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 
 // ---------------- Logs ----------------
@@ -88,7 +121,12 @@ resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: lawName
   location: location
   tags: tags
-  properties: { sku: { name: 'PerGB2018' }, retentionInDays: 30 }
+  properties: {
+    sku: { name: 'PerGB2018' }
+    retentionInDays: 30
+    // เพดาน log ต่อวัน กันค่าใช้จ่ายบานเมื่อมีอะไรผิดปกติ (ใช้งานปกติไม่กี่ MB ต่อวัน) เกินแล้วหยุดเก็บ log จนถึงวันถัดไป
+    workspaceCapping: { dailyQuotaGb: json('0.1') }
+  }
 }
 resource ai 'Microsoft.Insights/components@2020-02-02' = {
   name: aiName

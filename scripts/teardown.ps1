@@ -67,7 +67,7 @@ foreach ($d in $deps) {
 $ids = @($ids | Where-Object { $_ } | Sort-Object -Unique)
 
 # ข้าม resource ลูกและ deployment (ถูกลบพร้อมตัวแม่) และจัดลำดับการลบ
-function Skip($id) { $id -match '/providers/Microsoft\.Resources/deployments/' -or $id -match '/domains/' -or $id -match '/secrets/' -or $id -match '/providers/Microsoft\.Authorization/' }
+function Skip($id) { $id -match '/providers/Microsoft\.Resources/deployments/' -or $id -match '/domains/' -or $id -match '/secrets/' -or $id -match '/storageAccounts/[^/]+/' -or $id -match '/providers/Microsoft\.Authorization/' }
 function Rank($id) {
   switch -Regex ($id) {
     '/Microsoft\.Web/sites/' { 0; break }
