@@ -251,3 +251,22 @@ def test_http_json_response_declares_utf8():
     r = function_app._json_response({"subject": "ค้าง 8 รายการ"})
     assert r.mimetype == "application/json; charset=utf-8"
     assert json.loads(r.get_body().decode("utf-8"))["subject"] == "ค้าง 8 รายการ"
+
+
+def test_runner_manual_send_bootstraps_first_snapshot_only(tmp_path, env):
+    st = LocalStore(tmp_path)
+    # ยังไม่มี state -> บันทึก snapshot แรก
+    r = runner.run(today=date(2026, 10, 16), dry_run=False, force=True, persist=False, bootstrap=True, items=[item("a")], store=st)
+    assert r["persist"] is True and len(env) == 1
+    assert st.get("state.json")["items"]["a"]["first_seen"] == "2026-10-16"
+    # มี state แล้ว -> ไม่บันทึกซ้ำ
+    before = st.get("state.json")
+    r = runner.run(today=date(2026, 10, 21), dry_run=False, force=True, persist=False, bootstrap=True, items=[item("a"), item("b")], store=st)
+    assert r["persist"] is False and st.get("state.json") == before
+
+
+def test_runner_manual_send_bootstrap_skips_empty_result(tmp_path, env):
+    # ผลว่าง (เช่น สิทธิ์ Reader ยังไม่แพร่กระจาย) ต้องไม่บันทึก state ว่าง ไม่งั้น snapshot แรกจะหายไป
+    st = LocalStore(tmp_path)
+    r = runner.run(today=date(2026, 10, 16), dry_run=False, force=True, persist=False, bootstrap=True, items=[], store=st)
+    assert r["persist"] is False and st.get("state.json") is None

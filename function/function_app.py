@@ -46,12 +46,13 @@ def run_now(req: func.HttpRequest) -> func.HttpResponse:
 # ส่งเมลรายงานทันทีตอนไหนก็ได้ (ไม่ต้องรอวันทำงานแรกของสัปดาห์): POST /api/send  (ต้องมี function key)
 # ปิดเป็นค่าเริ่มต้น: ตั้ง TG_MANUAL_SEND_ENABLED=true เพื่อเปิด และยังเคารพ TG_MAIL_ENABLED
 # ไม่บันทึก state/snapshot เพื่อไม่ให้การส่งนอกรอบเลื่อนรอบ escalation (ขั้น 1 -> ขั้น 2) ของรายงานประจำสัปดาห์
+# ยกเว้นครั้งแรกที่ยังไม่มี state เลย จะบันทึก snapshot แรกให้ (deploy.ps1 ใช้ตอน SendReportOnDeploy)
 @app.route(route="send", auth_level=func.AuthLevel.FUNCTION, methods=["POST"])
 def send_now(req: func.HttpRequest) -> func.HttpResponse:
     if not runner.manual_send_enabled():
         return func.HttpResponse("not found", status_code=404)
     try:
-        result = runner.run(dry_run=False, force=True, persist=False)
+        result = runner.run(dry_run=False, force=True, persist=False, bootstrap=True)
     except Exception as e:
         logging.exception("send_now failed")
         return func.HttpResponse(f"{type(e).__name__}: {e}", status_code=500, mimetype="text/plain; charset=utf-8")

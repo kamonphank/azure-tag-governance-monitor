@@ -31,11 +31,19 @@ def today_th() -> date:
 
 
 def run(
-    today: date | None = None, dry_run: bool = True, force: bool = False, items: list[dict] | None = None, store=None, persist: bool = True
+    today: date | None = None,
+    dry_run: bool = True,
+    force: bool = False,
+    items: list[dict] | None = None,
+    store=None,
+    persist: bool = True,
+    bootstrap: bool = False,
 ) -> dict:
     """dry_run=True: ไม่ส่งเมล ไม่บันทึก state (แค่แสดงว่าจะส่งอะไร)
     force=True: ข้ามการเช็กว่าวันนี้เป็นวันส่งหรือไม่ (ใช้ตอนทดสอบ)
-    persist=False: ส่งเมลได้ แต่ไม่บันทึก state/snapshot (ใช้กับการส่งนอกรอบ ไม่ให้กระทบรอบ escalation รายสัปดาห์)"""
+    persist=False: ส่งเมลได้ แต่ไม่บันทึก state/snapshot (ใช้กับการส่งนอกรอบ ไม่ให้กระทบรอบ escalation รายสัปดาห์)
+    bootstrap=True: ถ้ายังไม่เคยมี state เลยและมีรายการค้าง ให้บันทึก snapshot แรกแม้ persist=False
+        (ทุกรายการเพิ่งเริ่มนับอายุ จึงไม่มีอะไรถูกเร่ง escalation)"""
     today = today or today_th()
     holidays = schedule.load_holidays(HOLIDAYS_FILE)
     if not force and not schedule.is_send_day(today, holidays):
@@ -54,7 +62,10 @@ def run(
 
         store = BlobStore(os.environ["AzureWebJobsStorage"])
 
-    state = store.get("state.json") or core.empty_state()
+    saved_state = store.get("state.json")
+    if bootstrap and saved_state is None and items:
+        persist = True
+    state = saved_state or core.empty_state()
     email, new_state, summary = core.run_report(items, state, today, sla, os.environ.get("TG_WORKBOOK_URL", ""))
     mail_enabled = os.environ.get("TG_MAIL_ENABLED", "true").strip().lower() not in ("false", "0", "no")
     result = {"status": "ok", "today": today.isoformat(), "summary": summary, "dry_run": dry_run, "mail_enabled": mail_enabled, "persist": persist}
