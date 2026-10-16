@@ -10,8 +10,8 @@
     Location       = 'southeastasia'                           # region ของ RG ใหม่
     MailTo         = @('responsible.person@example.com', 'deployer@example.com')   # ผู้รับ (To) ต้องเป็นอีเมลจริง
 
-    # tag ของ RG ใหม่ ควรครบตามที่ Policy บังคับ เพราะ RG นี้ถูกตรวจด้วย (ไม่จำเป็นหาก RG มีอยู่แล้ว)
-    ResourceGroupTags = @{
+    # tag ที่ใส่ให้ RG ใหม่และทุก resource ของโปรเจกต์ ควรครบตามที่ Policy บังคับ (RG ที่มีอยู่แล้วไม่ถูกแก้ tag)
+    Tags = @{
         # owner = '...' ; department = '...' ; environment = '...' ; project = '...'
     }
 

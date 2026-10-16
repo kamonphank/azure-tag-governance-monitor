@@ -6,11 +6,10 @@
 
 1. [Deploy to production](#1-deploy-to-production)
 2. [Configuration](#2-configuration)
-3. [Assigning the Reader role](#3-assigning-the-reader-role)
-4. [Testing](#4-testing)
-5. [Update and removal](#5-update-and-removal)
-6. [Troubleshooting](#6-troubleshooting)
-7. [For developers](#7-for-developers)
+3. [Testing](#3-testing)
+4. [Update and removal](#4-update-and-removal)
+5. [Troubleshooting](#5-troubleshooting)
+6. [For developers](#6-for-developers)
 
 ## 1. Deploy to production
 
@@ -36,7 +35,7 @@
 | สร้าง resource ใน Resource Group เดิม | Contributor บน Resource Group นั้น |
 | มอบสิทธิ์ Reader และ Key Vault ให้ Function | Owner หรือ User Access Administrator ที่ subscription |
 
-หากไม่มีสิทธิ์ข้อสุดท้าย ให้ administrator ช่วย deploy หรือดู [Assigning the Reader role](#3-assigning-the-reader-role)
+หากไม่มีสิทธิ์ข้อสุดท้าย ให้ administrator ช่วย deploy
 
 ### Step 2: Clone repository
 
@@ -69,7 +68,7 @@ Copy-Item config/team.example.psd1 config/prod.psd1
     SubscriptionId    = '<subscription-id>'
     ResourceGroup     = '<resource-group>'
     Location          = 'southeastasia'
-    ResourceGroupTags = @{ '<tag-name>' = '<value>' }   # ตามที่ Policy บังคับ (ใช้เฉพาะ Resource Group ที่สร้างใหม่)
+    Tags              = @{ '<tag-name>' = '<value>' }   # ตามที่ Policy บังคับ ใส่ให้ Resource Group ใหม่และทุก resource
     MailTo            = @('<responsible-person-email>')  # ผู้รับอีเมลสรุปทุกฉบับ
     MailCc            = @()                              # Cc ทุกฉบับ (ไม่บังคับ)
     MailCcEscalation  = @('<manager-email>')             # Cc เพิ่มเมื่อมีรายการค้างเกินกำหนดสองรอบ
@@ -97,11 +96,11 @@ Copy-Item config/team.example.psd1 config/prod.psd1
 สคริปต์ถามยืนยันก่อนทุกครั้ง
 
 - Resource Group ใหม่: พิมพ์ `yes`
-- Resource Group ที่มีอยู่แล้ว: พิมพ์ **ชื่อ Resource Group** (สคริปต์เพิ่ม resource ของโปรเจกต์นี้ ไม่ลบหรือแก้ resource อื่น และไม่แก้ tag หรือ region ของ Resource Group)
+- Resource Group ที่มีอยู่แล้ว: พิมพ์ **ชื่อ Resource Group** (สคริปต์เพิ่ม resource ของโปรเจกต์นี้ ไม่ลบหรือแก้ resource อื่น และไม่แก้ tag หรือ region ของ Resource Group ส่วน `Tags` ใส่ให้เฉพาะ resource ของโปรเจกต์นี้)
 
 จากนั้นสคริปต์สร้าง resource ทั้งชุด (Storage, Function App, Key Vault, Log Analytics, Application Insights, Workbook, ACS Email) ให้สิทธิ์ Reader แก่ Function แล้วส่งโค้ดขึ้น Function App ท้ายสุดสคริปต์พิมพ์ขั้นตอนถัดไปให้
 
-### Step 7: ตรวจสอบและเปิดส่งอีเมล
+### Step 7: ตรวจสอบและเริ่มเก็บข้อมูล
 
 รอ 2-3 นาทีให้สิทธิ์แพร่กระจาย แล้วตรวจที่ Azure Portal
 
@@ -109,14 +108,33 @@ Copy-Item config/team.example.psd1 config/prod.psd1
 - **Function App > Environment variables** แถว `TG_ACS_CONNECTION_STRING` มีเครื่องหมายถูกสีเขียว (อ่าน secret จาก Key Vault ได้)
 - **Monitor > Workbooks > Shared > "Tag Governance"** เปิดได้ และตัวเลขใกล้เคียงหน้า Policy compliance
 
-เมื่อเรียบร้อย ระบบเก็บ snapshot ไปเรื่อยๆ โดยยังไม่ส่งอีเมล ควรปล่อยไว้อย่างน้อย 1 สัปดาห์เพื่อให้มีข้อมูลอายุของรายการ แล้วเปิดส่งอีเมล
+จากนั้นบันทึก snapshot แรกทันที เพื่อให้ระบบเริ่มนับอายุของรายการตั้งแต่วันนี้ (ถ้าไม่ทำ ระบบจะเริ่มนับในวันทำงานแรกของสัปดาห์ถัดไป) โดยเปิด endpoint ทดสอบ `/api/run` ชั่วคราวด้วย `-Set` แล้วปิดกลับ
+
+```powershell
+$cfg = './config/prod.psd1'
+$rg = '<resource-group>'; $fn = '<function-app>'   # ชื่อ Function App อยู่ในผลของ deploy.ps1 (บรรทัด "Function App:")
+
+./scripts/deploy.ps1 -ConfigPath $cfg -Part Infra -Set @{ EnableTestEndpoint = $true }   # เปิด /api/run ชั่วคราว
+$key = az functionapp function keys list -g $rg -n $fn --function-name run_now --query default -o tsv
+
+Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&force=1" | ConvertTo-Json -Depth 6   # ดูผลก่อน ไม่บันทึกอะไร
+Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=0&force=1" | ConvertTo-Json -Depth 6   # บันทึก snapshot แรก เรียกครั้งเดียว
+
+./scripts/deploy.ps1 -ConfigPath $cfg -Part Infra   # ปิด /api/run กลับตามค่าใน config
+```
+
+- ผลของ `dry_run=1` ต้องมี `"status": "ok"` และ `summary.total` ใกล้เคียงหน้า Policy compliance
+- ผลของ `dry_run=0` ต้องมี `"dry_run": false` และเพราะ `MailEnabled` ยังเป็น `$false` ระบบจะไม่ส่งอีเมล แต่บันทึก `state.json` และ `snapshots/<date>.json` ใน Blob container `tag-governance`
+- `$key` คือ function key ดูคำอธิบายในหัวข้อ [Testing](#3-testing)
+
+ปล่อยให้ระบบเก็บ snapshot ไปอย่างน้อย 1 สัปดาห์เพื่อให้มีข้อมูลอายุของรายการ แล้วเปิดส่งอีเมล
 
 ```powershell
 # แก้ MailEnabled = $true ใน config/prod.psd1 แล้วรัน
 ./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -Part Infra
 ```
 
-ทดสอบก่อนเปิดส่งจริงได้ตามหัวข้อ [Testing](#4-testing)
+ทดสอบเพิ่มเติมได้ตามหัวข้อ [Testing](#3-testing)
 
 ### Checklist ก่อนใช้งานจริง
 
@@ -136,7 +154,7 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 | `ResourceGroup` | Yes | - | ชื่อ Resource Group (มีแล้วจะ deploy เพิ่ม ยังไม่มีจะสร้างใหม่) | - |
 | `Location` | Yes | - | region ของ Resource Group ใหม่ เช่น `southeastasia` | - |
 | `MailTo` | Yes | - | ผู้รับหลักของอีเมลสรุปทุกฉบับ ต้องเป็นอีเมลจริง | `TG_MAIL_TO` |
-| `ResourceGroupTags` | No | `@{}` | tag ของ Resource Group ที่สร้างใหม่เท่านั้น ควรครบตามที่ Policy บังคับ เพราะ Resource Group นี้ถูกตรวจด้วย | - |
+| `Tags` | No | `@{}` | tag ที่ใส่ให้ Resource Group ที่สร้างใหม่และทุก resource ของโปรเจกต์ (Storage, Function App, Key Vault ฯลฯ) ควรครบตามที่ Policy บังคับ Resource Group ที่มีอยู่แล้วไม่ถูกแก้ tag (`ResourceGroupTags` คือชื่อเดิม ยังใช้ได้) | - |
 | `NamePrefix` | No | `tagGov` | คำนำหน้าชื่อ resource (ตัวอักษรหรือตัวเลข 1 ถึง 8 ตัว) | - |
 | `PolicyAssignmentName` | No | `rg-tag-governance-audit` | ชื่อ Policy assignment (ไม่ใช่ ID เต็ม) ตรวจสอบด้วย `az policy assignment list --query "[].name" -o tsv` | `TG_ASSIGNMENT_NAME` |
 | `ScanSubscriptionIds` | No | `@()` | จำกัด subscription ที่ scan ว่างคือทุก subscription ที่ Function อ่านได้ | `TG_SUBSCRIPTION_IDS` |
@@ -157,7 +175,7 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 - **Cc** หากอีเมลใน `MailCc` และ `MailCcEscalation` ซ้ำกัน ระบบใส่เพียงครั้งเดียว
 - **สิทธิ์ Reader** สคริปต์มอบให้เฉพาะ subscription ใน `SubscriptionId` หากต้องการ scan subscription อื่น administrator ต้องมอบสิทธิ์ให้เอง
 - **`EnableTestEndpoint`** ปิดไว้เป็นค่าเริ่มต้น เพราะ `dry_run=0` ส่งอีเมลและบันทึก state ได้จริง เปิดเฉพาะตอนทดสอบ
-- **`EnableManualSend`** ใช้ส่งอีเมลนอกรอบ (นอกเหนือจากรอบอัตโนมัติวันทำงานแรกของสัปดาห์) โดยไม่บันทึก state และ snapshot รอบ escalation ของรายงานประจำสัปดาห์จึงไม่เปลี่ยน ดูหัวข้อ 4
+- **`EnableManualSend`** ใช้ส่งอีเมลนอกรอบ (นอกเหนือจากรอบอัตโนมัติวันทำงานแรกของสัปดาห์) โดยไม่บันทึก state และ snapshot รอบ escalation ของรายงานประจำสัปดาห์จึงไม่เปลี่ยน ดูหัวข้อ 3
 
 **ตัวเลือกของ `deploy.ps1`**
 
@@ -170,18 +188,7 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 | `-Set @{ Key = Value }` | ทับค่าใน config จากบรรทัดคำสั่งชั่วคราว ไม่ถูกบันทึกลงไฟล์ ค่าที่ต้องคงอยู่ควรอยู่ในไฟล์ config |
 | `-RestoreFrom <dir>` | คืน state ที่สำรองไว้ด้วย `teardown.ps1 -BackupTo` หลัง deploy |
 
-## 3. Assigning the Reader role
-
-ใช้เมื่อกำหนด `AssignSubscriptionReader = $false` หรือต้องการให้ Function scan subscription อื่น ให้ administrator ที่มีสิทธิ์ Owner หรือ User Access Administrator ดำเนินการ
-
-```powershell
-$principalId = az functionapp identity show -g <resource-group> -n <function-app> --query principalId -o tsv
-az role assignment create --assignee-object-id $principalId --assignee-principal-type ServicePrincipal --role Reader --scope /subscriptions/<subscription-id>
-```
-
-หากยังไม่มีสิทธิ์ Reader Function จะอ่าน Resource Graph ไม่ได้และได้ผลลัพธ์ว่าง
-
-## 4. Testing
+## 3. Testing
 
 1. **Workbook** เปิด Azure Portal ไปที่ Monitor, Workbooks, Shared แล้วเลือก "Tag Governance" และเทียบตัวเลขกับหน้า Policy compliance
 2. **Dry run** ตั้ง `EnableTestEndpoint = $true` แล้วรัน `-Part Infra` จากนั้นเรียกโดยไม่ส่งอีเมลและไม่บันทึก state
@@ -191,6 +198,8 @@ $rg = '<resource-group>'; $fn = '<function-app>'
 $key = az functionapp function keys list -g $rg -n $fn --function-name run_now --query default -o tsv
 Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&force=1" | ConvertTo-Json -Depth 6
 ```
+
+**Function key** endpoint `/api/run` และ `/api/send` กำหนดให้ผู้เรียกต้องแนบ key ใน `?code=` ทุกครั้ง (auth level `FUNCTION`) ถ้าไม่มีหรือผิดจะได้ `401` ซึ่งป้องกันไม่ให้คนที่รู้แค่ URL สั่งส่งอีเมลหรือแก้ state ได้ Azure สร้าง key ชื่อ `default` ให้แต่ละ function อัตโนมัติ คำสั่ง `az functionapp function keys list` ใช้สิทธิ์ Azure ของผู้ที่ login อยู่ไปอ่าน key นั้นมา จึงต้องดึงแยกตามชื่อ function (`run_now` หรือ `send_now`) ถือว่า key เป็นความลับ ห้ามแปะลงเอกสารหรือแชต หากรั่วให้สร้างใหม่ที่ Portal > Function App > เลือก function > Function Keys > Renew
 
 ตัวอย่างในเอกสารนี้ใช้ `Invoke-RestMethod` ซึ่งเป็นคำสั่งของ PowerShell เอง ใช้ได้ทั้ง Windows PowerShell 5.1 และ PowerShell 7 และต่อ `| ConvertTo-Json -Depth 6` เพื่อให้เห็นผลเป็น JSON ครบทุกระดับ (ถ้าไม่ต่อ ค่าที่เป็น list จะแสดงเป็น `System.Object[]`) ไม่ควรใช้ `curl` ใน Windows PowerShell 5.1 เพราะเป็น alias ของ `Invoke-WebRequest` ซึ่งไม่รู้จัก option ของ curl เช่น `-X POST` หากต้องการ curl จริงให้พิมพ์ `curl.exe`
 
@@ -219,7 +228,7 @@ key ของแต่ละ function แยกกัน ต้องดึง k
 
 endpoint นี้ส่งอีเมลด้วยข้อมูลล่าสุดทันทีโดยไม่สนว่าเป็นวันส่งหรือไม่ แต่ยังเคารพ `MailEnabled` และไม่ส่งเมื่อทุกรายการผ่านแล้ว ระบบไม่บันทึก state และ snapshot จากการเรียกนี้ จึงไม่ทำให้รายการขยับไป Stage 2 เร็วกว่ารอบประจำสัปดาห์ (ต่างจาก `run?dry_run=0&force=1` ที่บันทึก state)
 
-## 5. Update and removal
+## 4. Update and removal
 
 **Update** แก้โค้ดหรือ `holidays.json` แล้วรัน `-Part Code` แก้ config แล้วรัน `-Part Infra`
 
@@ -235,13 +244,13 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 - ใช้ `-DeleteResourceGroup` เมื่อ Resource Group สร้างมาเพื่อระบบนี้โดยเฉพาะ
 - โฟลเดอร์ `backup/` มีชื่อ resource จริง ห้าม commit (ถูก `.gitignore` กันไว้แล้ว)
 
-## 6. Troubleshooting
+## 5. Troubleshooting
 
 | Symptom | Cause and resolution |
 |---|---|
 | สคริปต์แจ้งว่า `az login` อยู่คนละ subscription | ใช้ `az account set --subscription <id>` |
 | Bicep compile ไม่ผ่าน หรือ crash | Bicep เก่าเกินไป รัน `az bicep upgrade` |
-| `AuthorizationFailed` ขณะมอบสิทธิ์ Reader หรือ Key Vault | ไม่มีสิทธิ์ Owner หรือ User Access Administrator ให้ administrator deploy หรือมอบสิทธิ์ตามหัวข้อ 3 |
+| `AuthorizationFailed` ขณะมอบสิทธิ์ Reader หรือ Key Vault | ไม่มีสิทธิ์ Owner หรือ User Access Administrator ให้ administrator deploy |
 | `TG_ACS_CONNECTION_STRING` ขึ้นเครื่องหมายแดง | สิทธิ์ยังไม่แพร่กระจาย รอ 2-3 นาที แล้วรีสตาร์ต Function App |
 | ชื่อ resource ซ้ำ | เปลี่ยน `NamePrefix` |
 | deploy ใหม่ชนชื่อ Key Vault หรือ Log Analytics | ของเก่าค้างใน soft-delete รัน `teardown.ps1` ซึ่ง purge ให้ หรือเปลี่ยน `NamePrefix` |
@@ -249,9 +258,9 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 | Function ได้ผลลัพธ์ว่าง | ตรวจสอบว่ามีสิทธิ์ Reader, `PolicyAssignmentName` ตรงกับ assignment และ Policy ประเมินเสร็จแล้ว (ใช้ `az policy state trigger-scan` ได้) |
 | ไม่ได้รับอีเมล | `MailEnabled` ยังเป็น `$false` อีเมลอยู่ใน Junk หรือทุกรายการผ่านแล้ว (ระบบไม่ส่งอีเมลเมื่อไม่มีรายการค้าง) |
 | `/api/run` ตอบ 404 | `EnableTestEndpoint` ยังเป็น `$false` |
-| `/api/send` ตอบ 404 | `EnableManualSend` ยังเป็น `$false` ดูหัวข้อ 4 |
+| `/api/send` ตอบ 404 | `EnableManualSend` ยังเป็น `$false` ดูหัวข้อ 3 |
 
-## 7. For developers
+## 6. For developers
 
 repository นี้เป็น public ก่อน commit และ push ทุกครั้งควรตรวจสอบด้วยตนเองว่าไม่มีข้อมูลจริง เช่น subscription ID, อีเมล, ชื่อบริษัท หรือชื่อระบบภายใน ปะปนอยู่ ด้วย `git status` และ `git diff --staged` ไฟล์ config จริงและไฟล์ข้อมูล (`*.csv`, `*.xlsx`, `state.json`) ถูกกำหนดใน `.gitignore` แล้ว ควรเปิด Secret scanning และ Push protection ใน GitHub ด้วย
 
