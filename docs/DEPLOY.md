@@ -6,11 +6,10 @@
 
 1. [Deploy to production](#1-deploy-to-production)
 2. [Configuration](#2-configuration)
-3. [Assigning the Reader role](#3-assigning-the-reader-role)
-4. [Testing](#4-testing)
-5. [Update and removal](#5-update-and-removal)
-6. [Troubleshooting](#6-troubleshooting)
-7. [For developers](#7-for-developers)
+3. [Testing](#3-testing)
+4. [Update and removal](#4-update-and-removal)
+5. [Troubleshooting](#5-troubleshooting)
+6. [For developers](#6-for-developers)
 
 ## 1. Deploy to production
 
@@ -36,7 +35,7 @@
 | สร้าง resource ใน Resource Group เดิม | Contributor บน Resource Group นั้น |
 | มอบสิทธิ์ Reader และ Key Vault ให้ Function | Owner หรือ User Access Administrator ที่ subscription |
 
-หากไม่มีสิทธิ์ข้อสุดท้าย ให้ administrator ช่วย deploy หรือดู [Assigning the Reader role](#3-assigning-the-reader-role)
+หากไม่มีสิทธิ์ข้อสุดท้าย ให้ administrator ช่วย deploy
 
 ### Step 2: Clone repository
 
@@ -116,7 +115,7 @@ Copy-Item config/team.example.psd1 config/prod.psd1
 ./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -Part Infra
 ```
 
-ทดสอบก่อนเปิดส่งจริงได้ตามหัวข้อ [Testing](#4-testing)
+ทดสอบก่อนเปิดส่งจริงได้ตามหัวข้อ [Testing](#3-testing)
 
 ### Checklist ก่อนใช้งานจริง
 
@@ -157,7 +156,7 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 - **Cc** หากอีเมลใน `MailCc` และ `MailCcEscalation` ซ้ำกัน ระบบใส่เพียงครั้งเดียว
 - **สิทธิ์ Reader** สคริปต์มอบให้เฉพาะ subscription ใน `SubscriptionId` หากต้องการ scan subscription อื่น administrator ต้องมอบสิทธิ์ให้เอง
 - **`EnableTestEndpoint`** ปิดไว้เป็นค่าเริ่มต้น เพราะ `dry_run=0` ส่งอีเมลและบันทึก state ได้จริง เปิดเฉพาะตอนทดสอบ
-- **`EnableManualSend`** ใช้ส่งอีเมลนอกรอบ (นอกเหนือจากรอบอัตโนมัติวันทำงานแรกของสัปดาห์) โดยไม่บันทึก state และ snapshot รอบ escalation ของรายงานประจำสัปดาห์จึงไม่เปลี่ยน ดูหัวข้อ 4
+- **`EnableManualSend`** ใช้ส่งอีเมลนอกรอบ (นอกเหนือจากรอบอัตโนมัติวันทำงานแรกของสัปดาห์) โดยไม่บันทึก state และ snapshot รอบ escalation ของรายงานประจำสัปดาห์จึงไม่เปลี่ยน ดูหัวข้อ 3
 
 **ตัวเลือกของ `deploy.ps1`**
 
@@ -170,18 +169,7 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 | `-Set @{ Key = Value }` | ทับค่าใน config จากบรรทัดคำสั่งชั่วคราว ไม่ถูกบันทึกลงไฟล์ ค่าที่ต้องคงอยู่ควรอยู่ในไฟล์ config |
 | `-RestoreFrom <dir>` | คืน state ที่สำรองไว้ด้วย `teardown.ps1 -BackupTo` หลัง deploy |
 
-## 3. Assigning the Reader role
-
-ใช้เมื่อกำหนด `AssignSubscriptionReader = $false` หรือต้องการให้ Function scan subscription อื่น ให้ administrator ที่มีสิทธิ์ Owner หรือ User Access Administrator ดำเนินการ
-
-```powershell
-$principalId = az functionapp identity show -g <resource-group> -n <function-app> --query principalId -o tsv
-az role assignment create --assignee-object-id $principalId --assignee-principal-type ServicePrincipal --role Reader --scope /subscriptions/<subscription-id>
-```
-
-หากยังไม่มีสิทธิ์ Reader Function จะอ่าน Resource Graph ไม่ได้และได้ผลลัพธ์ว่าง
-
-## 4. Testing
+## 3. Testing
 
 1. **Workbook** เปิด Azure Portal ไปที่ Monitor, Workbooks, Shared แล้วเลือก "Tag Governance" และเทียบตัวเลขกับหน้า Policy compliance
 2. **Dry run** ตั้ง `EnableTestEndpoint = $true` แล้วรัน `-Part Infra` จากนั้นเรียกโดยไม่ส่งอีเมลและไม่บันทึก state
@@ -219,7 +207,7 @@ key ของแต่ละ function แยกกัน ต้องดึง k
 
 endpoint นี้ส่งอีเมลด้วยข้อมูลล่าสุดทันทีโดยไม่สนว่าเป็นวันส่งหรือไม่ แต่ยังเคารพ `MailEnabled` และไม่ส่งเมื่อทุกรายการผ่านแล้ว ระบบไม่บันทึก state และ snapshot จากการเรียกนี้ จึงไม่ทำให้รายการขยับไป Stage 2 เร็วกว่ารอบประจำสัปดาห์ (ต่างจาก `run?dry_run=0&force=1` ที่บันทึก state)
 
-## 5. Update and removal
+## 4. Update and removal
 
 **Update** แก้โค้ดหรือ `holidays.json` แล้วรัน `-Part Code` แก้ config แล้วรัน `-Part Infra`
 
@@ -235,13 +223,13 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 - ใช้ `-DeleteResourceGroup` เมื่อ Resource Group สร้างมาเพื่อระบบนี้โดยเฉพาะ
 - โฟลเดอร์ `backup/` มีชื่อ resource จริง ห้าม commit (ถูก `.gitignore` กันไว้แล้ว)
 
-## 6. Troubleshooting
+## 5. Troubleshooting
 
 | Symptom | Cause and resolution |
 |---|---|
 | สคริปต์แจ้งว่า `az login` อยู่คนละ subscription | ใช้ `az account set --subscription <id>` |
 | Bicep compile ไม่ผ่าน หรือ crash | Bicep เก่าเกินไป รัน `az bicep upgrade` |
-| `AuthorizationFailed` ขณะมอบสิทธิ์ Reader หรือ Key Vault | ไม่มีสิทธิ์ Owner หรือ User Access Administrator ให้ administrator deploy หรือมอบสิทธิ์ตามหัวข้อ 3 |
+| `AuthorizationFailed` ขณะมอบสิทธิ์ Reader หรือ Key Vault | ไม่มีสิทธิ์ Owner หรือ User Access Administrator ให้ administrator deploy |
 | `TG_ACS_CONNECTION_STRING` ขึ้นเครื่องหมายแดง | สิทธิ์ยังไม่แพร่กระจาย รอ 2-3 นาที แล้วรีสตาร์ต Function App |
 | ชื่อ resource ซ้ำ | เปลี่ยน `NamePrefix` |
 | deploy ใหม่ชนชื่อ Key Vault หรือ Log Analytics | ของเก่าค้างใน soft-delete รัน `teardown.ps1` ซึ่ง purge ให้ หรือเปลี่ยน `NamePrefix` |
@@ -249,9 +237,9 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 | Function ได้ผลลัพธ์ว่าง | ตรวจสอบว่ามีสิทธิ์ Reader, `PolicyAssignmentName` ตรงกับ assignment และ Policy ประเมินเสร็จแล้ว (ใช้ `az policy state trigger-scan` ได้) |
 | ไม่ได้รับอีเมล | `MailEnabled` ยังเป็น `$false` อีเมลอยู่ใน Junk หรือทุกรายการผ่านแล้ว (ระบบไม่ส่งอีเมลเมื่อไม่มีรายการค้าง) |
 | `/api/run` ตอบ 404 | `EnableTestEndpoint` ยังเป็น `$false` |
-| `/api/send` ตอบ 404 | `EnableManualSend` ยังเป็น `$false` ดูหัวข้อ 4 |
+| `/api/send` ตอบ 404 | `EnableManualSend` ยังเป็น `$false` ดูหัวข้อ 3 |
 
-## 7. For developers
+## 6. For developers
 
 repository นี้เป็น public ก่อน commit และ push ทุกครั้งควรตรวจสอบด้วยตนเองว่าไม่มีข้อมูลจริง เช่น subscription ID, อีเมล, ชื่อบริษัท หรือชื่อระบบภายใน ปะปนอยู่ ด้วย `git status` และ `git diff --staged` ไฟล์ config จริงและไฟล์ข้อมูล (`*.csv`, `*.xlsx`, `state.json`) ถูกกำหนดใน `.gitignore` แล้ว ควรเปิด Secret scanning และ Push protection ใน GitHub ด้วย
 
