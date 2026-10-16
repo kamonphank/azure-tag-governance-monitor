@@ -8,6 +8,10 @@ from tag_governance import runner
 
 app = func.FunctionApp()
 
+# Azure SDK เขียน log ระดับ INFO ทุก HTTP request (และทุกครั้งที่ขอ token) ลง Application Insights
+# ซึ่งไม่ได้ช่วยดูปัญหาแต่เพิ่มปริมาณ log จึงเก็บเฉพาะ WARNING ขึ้นไป (log ของระบบนี้เองไม่ถูกกระทบ)
+logging.getLogger("azure").setLevel(logging.WARNING)
+
 
 def _json_response(result: dict) -> func.HttpResponse:
     # ต้องระบุ charset ใน Content-Type ไม่งั้น Invoke-RestMethod (Windows PowerShell 5.1) อ่านเป็น ISO-8859-1 แล้วภาษาไทยเพี้ยน
@@ -33,6 +37,9 @@ def run_now(req: func.HttpRequest) -> func.HttpResponse:
     dry = req.params.get("dry_run", "1") not in ("0", "false", "False")
     force = req.params.get("force", "0") in ("1", "true", "True")
     t = req.params.get("today")
+    if t and not dry:
+        # จำลองวันได้เฉพาะ dry_run: ถ้าบันทึก state ด้วยวันที่ไม่ใช่วันนี้ first_seen และรอบ escalation จะผิดไปถาวร
+        return func.HttpResponse("today ใช้ได้เฉพาะ dry_run=1", status_code=400, mimetype="text/plain; charset=utf-8")
     today = date.fromisoformat(t) if t else None
     try:
         result = runner.run(today=today, dry_run=dry, force=force)
