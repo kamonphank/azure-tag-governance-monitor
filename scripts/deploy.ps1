@@ -16,6 +16,7 @@
 .PARAMETER Part        All (ค่าเริ่มต้น) | Infra = เฉพาะโครงสร้าง | Code = ส่งเฉพาะโค้ด Function (ใช้หลังแก้โค้ด)
 .PARAMETER RestoreFrom โฟลเดอร์ที่ได้จาก teardown.ps1 -BackupTo: คืน state.json และ snapshots ขึ้น Storage ใหม่หลัง deploy (age ของรายการจึงนับต่อ ไม่เริ่มใหม่)
 .PARAMETER Set         กำหนดหรือทับค่าใน config จากบรรทัดคำสั่ง เช่น -Set @{ MailEnabled = $true } (ไม่ถูกบันทึกลงไฟล์)
+                       ตั้ง SendReportOnDeploy = $true ใน config เพื่อส่งอีเมลรายงานจริงทันทีหลัง deploy (ต้องมี MailEnabled และ EnableManualSend)
 
 .EXAMPLE
   ./scripts/deploy.ps1 -PlanOnly          # ดูก่อน ไม่แก้อะไร
@@ -63,7 +64,7 @@ if ($RestoreFrom -and -not (Test-Path (Join-Path $RestoreFrom 'state.json'))) {
 
 $known = @('SubscriptionId', 'ResourceGroup', 'Location', 'Tags', 'ResourceGroupTags', 'NamePrefix', 'PolicyAssignmentName',
   'ScanSubscriptionIds', 'RgNameRegex', 'SlaDays', 'MailEnabled', 'MailTo', 'MailCc', 'MailCcEscalation',
-  'CreateAcsEmail', 'ExistingAcsSender', 'AssignSubscriptionReader', 'EnableTestEndpoint', 'EnableManualSend')
+  'CreateAcsEmail', 'ExistingAcsSender', 'AssignSubscriptionReader', 'EnableTestEndpoint', 'EnableManualSend', 'SendReportOnDeploy')
 foreach ($k in $cfg.Keys) { if ($known -notcontains $k) { Fail "config มี key ที่ไม่รู้จัก '$k' (พิมพ์ผิดหรือเปล่า) key ที่ใช้ได้: $($known -join ', ')" } }
 
 function Cfg($key, $default) { if ($cfg.ContainsKey($key) -and $null -ne $cfg[$key]) { $cfg[$key] } else { $default } }
@@ -103,12 +104,16 @@ if (-not $createAcs) {
   if ($acsSender -notmatch $mailRx) { $errors.Add('CreateAcsEmail = $false ต้องระบุ ExistingAcsSender (ที่อยู่ผู้ส่งของ ACS ที่มีอยู่)') }
   if (-not $acsConn) { $errors.Add('CreateAcsEmail = $false ต้องตั้ง environment variable TG_ACS_CONNECTION_STRING ในเครื่องที่รันสคริปต์ (ห้ามใส่ใน config)') }
 }
+if ([bool](Cfg 'SendReportOnDeploy' $false) -and -not ([bool](Cfg 'MailEnabled' $false) -and [bool](Cfg 'EnableManualSend' $false))) {
+  $errors.Add('SendReportOnDeploy = $true ต้องตั้ง MailEnabled = $true และ EnableManualSend = $true ด้วย (ส่งผ่าน POST /api/send)')
+}
 if ($errors.Count -gt 0) { Fail ("config ไม่ถูกต้อง:`n  - " + ($errors -join "`n  - ")) }
 
 $mailEnabled = [bool](Cfg 'MailEnabled' $false)
 $assignReader = [bool](Cfg 'AssignSubscriptionReader' $true)
 $testEndpoint = [bool](Cfg 'EnableTestEndpoint' $false)
 $manualSend = [bool](Cfg 'EnableManualSend' $false)
+$sendOnDeploy = [bool](Cfg 'SendReportOnDeploy' $false)
 # Tags ใส่ให้ RG ที่สร้างใหม่และทุก resource ของโปรเจกต์ (ResourceGroupTags คือชื่อเดิม ยังใช้ได้)
 $tagCfg = Cfg 'Tags' (Cfg 'ResourceGroupTags' @{})
 $tagMap = [ordered]@{}
@@ -155,6 +160,10 @@ Info "ACS Email:        $(if ($createAcs) { 'สร้างใหม่ (manage
 Info "Policy assignment ที่ตรวจ: $(Cfg 'PolicyAssignmentName' 'rg-tag-governance-audit')"
 Info "Endpoint ทดสอบ /api/run:   $(if ($testEndpoint) { 'เปิด (อย่าลืมปิดหลังทดสอบ)' } else { 'ปิด' })"
 Info "ส่งเมลทันที /api/send:     $(if ($manualSend) { 'เปิด' } else { 'ปิด' })"
+if ($sendOnDeploy) {
+  if ($Part -in 'All', 'Code') { Warn "จะส่งอีเมลรายงานจริงทันทีหลัง deploy ถึง: $($mailTo -join ', ')  (SendReportOnDeploy)" }
+  else { Info 'SendReportOnDeploy: ข้าม เพราะ -Part Infra ไม่ได้ส่งโค้ด' }
+}
 if ($assignReader) { Warn "จะให้สิทธิ์ Reader แก่ Function (managed identity) ที่ระดับ subscription $subId  <- ต้องใช้ Owner / User Access Administrator" }
 else { Warn 'AssignSubscriptionReader = $false: ต้องให้ admin มอบสิทธิ์ Reader ให้ Function เองหลัง deploy (คำสั่งอยู่ท้ายสคริปต์)' }
 
@@ -291,6 +300,43 @@ try {
       if ($LASTEXITCODE -ne 0) { Fail 'คืน state ไม่สำเร็จ' }
     } finally { Remove-Item Env:\AZURE_STORAGE_KEY -ErrorAction SilentlyContinue }
     Info 'คืน state.json และ snapshots แล้ว'
+  }
+
+  # ---------- ส่งรายงานทันทีหลัง deploy ----------
+  # รอให้ Function App โหลดโค้ด/อ่าน secret จาก Key Vault/สิทธิ์ Reader แพร่กระจายก่อน จึงลองซ้ำได้ถึงประมาณ 6 นาที
+  # ถ้ายังไม่มี state ระบบบันทึก snapshot แรกให้ด้วย (อายุรายการเริ่มนับวันนี้)
+  if ($sendOnDeploy -and $Part -in 'All', 'Code') {
+    Step 'ส่งอีเมลรายงานทันที (SendReportOnDeploy)'
+    $hostName = & az functionapp show --resource-group $rg --name $funcName --query defaultHostName -o tsv
+    $sendKey = $null; $res = $null; $lastErr = ''
+    $deadline = (Get-Date).AddMinutes(6)
+    while ((Get-Date) -lt $deadline) {
+      if (-not $sendKey) { $sendKey = & az functionapp function keys list --resource-group $rg --name $funcName --function-name send_now --query default -o tsv 2>$null }
+      if ($sendKey) {
+        try {
+          $res = Invoke-RestMethod -Method Post -Uri "https://$hostName/api/send?code=$sendKey" -TimeoutSec 230
+          # ผลว่างช่วงแรกมักเป็นเพราะสิทธิ์ Reader ยังไม่แพร่กระจาย ลองใหม่อีกสักพัก
+          if ($res.summary.total -gt 0 -or (Get-Date) -gt $deadline.AddMinutes(-3)) { break }
+          $lastErr = 'ผลยังว่าง (รอสิทธิ์ Reader)'
+        } catch { $lastErr = $_.Exception.Message; $res = $null }
+      } else { $lastErr = 'ยังไม่ได้ function key ของ send_now' }
+      Info "ยังไม่พร้อม: $lastErr  ลองใหม่ใน 20 วินาที"
+      Start-Sleep -Seconds 20
+    }
+    $resendCmd = "`$key = az functionapp function keys list -g $rg -n $funcName --function-name send_now --query default -o tsv`n    Invoke-RestMethod -Method Post `"https://$hostName/api/send?code=`$key`" | ConvertTo-Json -Depth 6"
+    if (-not $res) {
+      Warn "ส่งไม่สำเร็จ: $lastErr"
+      Warn "deploy เสร็จแล้ว ลองส่งเองอีกครั้งใน 2-3 นาที:`n    $resendCmd"
+    } elseif ($res.email.message_id) {
+      Info "ส่งแล้ว: $($res.email.subject)"
+      Info "To: $($res.email.to -join ', ')  Cc: $(if ($res.email.cc) { $res.email.cc -join ', ' } else { '-' })"
+      Info "message_id: $($res.email.message_id)$(if ($res.persist) { '  (บันทึก snapshot แรกแล้ว อายุรายการเริ่มนับวันนี้)' })"
+    } else {
+      Warn "ไม่ได้ส่งอีเมล: $(if ($res.email -is [string]) { $res.email } else { 'ดูผลด้านล่าง' })"
+      if (-not $res.summary.total) { Warn 'ผลว่างอาจเป็นเพราะสิทธิ์ Reader ยังไม่แพร่กระจาย หรือ Policy ยังประเมินไม่เสร็จ ลองส่งเองอีกครั้งภายหลัง' }
+      Info ($res | ConvertTo-Json -Depth 6)
+      Warn "ส่งเองอีกครั้ง:`n    $resendCmd"
+    }
   }
 
   # ---------- 7) ขั้นถัดไป ----------

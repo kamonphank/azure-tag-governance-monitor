@@ -29,4 +29,5 @@
     # AssignSubscriptionReader = $true    # $false = admin มอบสิทธิ์ Reader เอง
     # EnableTestEndpoint       = $false    # เปิดเฉพาะตอนทดสอบ
     # EnableManualSend         = $false    # $true = เปิด POST /api/send ส่งเมลทันทีตอนไหนก็ได้
+    # SendReportOnDeploy       = $false    # $true = ส่งอีเมลรายงานจริงทันทีหลัง deploy (ต้องมี MailEnabled และ EnableManualSend = $true)
 }

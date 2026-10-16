@@ -76,6 +76,14 @@ Copy-Item config/team.example.psd1 config/prod.psd1
 }
 ```
 
+ถ้าต้องการให้ส่งอีเมลรายงานฉบับแรกทันทีที่ deploy เสร็จ ให้ตั้งสามค่านี้เพิ่ม สคริปต์จะส่งผ่าน `POST /api/send` และบันทึก snapshot แรกให้ (ข้าม Step 7 ส่วนบันทึก snapshot ได้)
+
+```powershell
+    MailEnabled        = $true
+    EnableManualSend   = $true
+    SendReportOnDeploy = $true
+```
+
 - ไฟล์ `config/*.psd1` (ยกเว้น `*.example.psd1`) ถูก `.gitignore` กันไว้ จึงไม่ถูก push ห้ามแก้ไฟล์ตัวอย่างให้เป็นค่าจริง และห้ามใส่ข้อมูลลับในไฟล์ config
 - ถ้าใช้ ACS Email เดิมแทนการสร้างใหม่ ให้ตั้ง `CreateAcsEmail = $false`, `ExistingAcsSender` และตัวแปร `$env:TG_ACS_CONNECTION_STRING = '<connection-string>'` ในหน้าต่าง PowerShell เดียวกับที่รัน deploy
 
@@ -108,7 +116,9 @@ Copy-Item config/team.example.psd1 config/prod.psd1
 - **Function App > Environment variables** แถว `TG_ACS_CONNECTION_STRING` มีเครื่องหมายถูกสีเขียว (อ่าน secret จาก Key Vault ได้)
 - **Monitor > Workbooks > Shared > "Tag Governance"** เปิดได้ และตัวเลขใกล้เคียงหน้า Policy compliance
 
-จากนั้นบันทึก snapshot แรกทันที เพื่อให้ระบบเริ่มนับอายุของรายการตั้งแต่วันนี้ (ถ้าไม่ทำ ระบบจะเริ่มนับในวันทำงานแรกของสัปดาห์ถัดไป) โดยเปิด endpoint ทดสอบ `/api/run` ชั่วคราวด้วย `-Set` แล้วปิดกลับ
+ถ้าตั้ง `SendReportOnDeploy = $true` สคริปต์ส่งอีเมลฉบับแรกและบันทึก snapshot แรกให้แล้ว (ดูผลท้ายสคริปต์ในหัวข้อ "ส่งอีเมลรายงานทันที") ข้ามส่วนที่เหลือของ Step 7 ได้
+
+ถ้าไม่ได้ตั้ง ให้บันทึก snapshot แรกทันที เพื่อให้ระบบเริ่มนับอายุของรายการตั้งแต่วันนี้ (ถ้าไม่ทำ ระบบจะเริ่มนับในวันทำงานแรกของสัปดาห์ถัดไป) โดยเปิด endpoint ทดสอบ `/api/run` ชั่วคราวด้วย `-Set` แล้วปิดกลับ
 
 ```powershell
 $cfg = './config/prod.psd1'
@@ -168,6 +178,7 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 | `AssignSubscriptionReader` | No | `$true` | ให้สคริปต์มอบสิทธิ์ Reader แก่ Function | - |
 | `EnableTestEndpoint` | No | `$false` | เปิด endpoint `/api/run` สำหรับทดสอบ | `TG_HTTP_ENABLED` |
 | `EnableManualSend` | No | `$false` | เปิด endpoint `POST /api/send` สำหรับส่งอีเมลรายงานทันทีตอนไหนก็ได้ | `TG_MANUAL_SEND_ENABLED` |
+| `SendReportOnDeploy` | No | `$false` | ให้ `deploy.ps1` ส่งอีเมลรายงานจริงทันทีหลัง deploy (`-Part All` หรือ `Code`) ต้องตั้ง `MailEnabled` และ `EnableManualSend` เป็น `$true` ด้วย ส่ง 1 ฉบับทุกครั้งที่ deploy ถ้าแก้โค้ดแล้วไม่อยากส่ง ใช้ `-Set @{ SendReportOnDeploy = $false }` | - |
 
 ข้อควรทราบ
 
@@ -226,7 +237,7 @@ Invoke-RestMethod -Method Post "https://$fn.azurewebsites.net/api/send?code=$key
 
 key ของแต่ละ function แยกกัน ต้องดึง key ของ `send_now` ไม่ใช่ของ `run_now` เรียกแต่ละครั้งส่งอีเมล 1 ฉบับ (ดูได้จาก `message_id` ในผลลัพธ์)
 
-endpoint นี้ส่งอีเมลด้วยข้อมูลล่าสุดทันทีโดยไม่สนว่าเป็นวันส่งหรือไม่ แต่ยังเคารพ `MailEnabled` และไม่ส่งเมื่อทุกรายการผ่านแล้ว ระบบไม่บันทึก state และ snapshot จากการเรียกนี้ จึงไม่ทำให้รายการขยับไป Stage 2 เร็วกว่ารอบประจำสัปดาห์ (ต่างจาก `run?dry_run=0&force=1` ที่บันทึก state)
+endpoint นี้ส่งอีเมลด้วยข้อมูลล่าสุดทันทีโดยไม่สนว่าเป็นวันส่งหรือไม่ แต่ยังเคารพ `MailEnabled` และไม่ส่งเมื่อทุกรายการผ่านแล้ว ระบบไม่บันทึก state และ snapshot จากการเรียกนี้ จึงไม่ทำให้รายการขยับไป Stage 2 เร็วกว่ารอบประจำสัปดาห์ (ต่างจาก `run?dry_run=0&force=1` ที่บันทึก state) ยกเว้นครั้งแรกที่ยังไม่เคยมี state เลย ระบบจะบันทึก snapshot แรกให้ (`"persist": true` ในผลลัพธ์)
 
 ## 4. Update and removal
 

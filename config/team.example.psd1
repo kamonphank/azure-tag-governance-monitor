@@ -31,4 +31,5 @@
     AssignSubscriptionReader = $true                          # ให้สคริปต์มอบสิทธิ์ Reader แก่ Function ที่ระดับ subscription
     EnableTestEndpoint       = $false                         # /api/run ปิดไว้ เปิดชั่วคราวด้วย -Set @{ EnableTestEndpoint = $true }
     EnableManualSend         = $false                         # $true = เปิด POST /api/send ส่งเมลทันทีตอนไหนก็ได้
+    SendReportOnDeploy       = $false                         # $true = ส่งอีเมลรายงานจริงทันทีหลัง deploy (ต้องมี MailEnabled และ EnableManualSend = $true)
 }
