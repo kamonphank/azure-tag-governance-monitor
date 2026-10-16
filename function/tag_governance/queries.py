@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 
 WHO_FIX = "Cloud team แก้ได้"
 WHO_ASK = "ถาม owner"
@@ -67,15 +68,38 @@ def _body(assignment: str, resource_type: str, lookup: str, kind: str) -> str:
     )
 
 
-def _pending(changes: str) -> str:
-    """ค่า tag อ่านสด แต่ผ่าน/ไม่ผ่านมาจากรอบที่ Policy ตรวจล่าสุด ถ้า tag ถูกแก้หลังรอบนั้น (ดูจากประวัติการเปลี่ยนแปลง
-    ใน Resource Graph ซึ่งเก็บราว 14 วัน) ถือว่ารอ Policy ตรวจซ้ำ ไม่ใช่งานที่ต้องทำ กันการแจ้งซ้ำทั้งที่แก้แล้ว"""
-    return f"""| join kind=leftouter ({changes}
-    | where tostring(properties.changes) contains "tags"
-    | summarize tags_changed_at = max(todatetime(properties.changeAttributes.timestamp)) by resource_id = tolower(tostring(properties.targetResourceId))) on resource_id
-| extend who = iff(isnotnull(tags_changed_at) and tags_changed_at > evaluated_at, "{WHO_PENDING}", who)
-| project {_COLS}
+# ค่า tag อ่านสด แต่ผ่าน/ไม่ผ่านมาจากรอบที่ Policy ตรวจล่าสุด ถ้า tag ถูกแก้หลังรอบนั้น ถือว่ารอ Policy ตรวจซ้ำ
+# (ไม่ใช่งานที่ต้องทำ) ดูเวลาที่แก้จากประวัติการเปลี่ยนแปลงของ Resource Graph ซึ่งเก็บราว 14 วัน
+# ตารางประวัติ join/union กับตารางอื่นไม่ได้ จึงต้อง query แยก แล้วนำผลมาเทียบทีหลัง
+# (Function เทียบใน Python ด้วย mark_pending, Workbook ส่งผลผ่าน parameter ที่ซ่อนไว้)
+CHANGE_TABLES = ("resourcecontainerchanges", "resourcechanges")  # RG, VM
+
+
+def changes_query(table: str) -> str:
+    if table not in CHANGE_TABLES:
+        raise ValueError(table)
+    return f"""{table}
+| where tostring(properties.changes) contains "tags"
+| summarize tags_changed_at = max(todatetime(properties.changeAttributes.timestamp)) by resource_id = tolower(tostring(properties.targetResourceId))
 """
+
+
+def _parse_time(v):
+    try:
+        t = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def mark_pending(items: list[dict], tags_changed_at: dict[str, str]) -> list[dict]:
+    """เปลี่ยน who เป็น WHO_PENDING ให้รายการที่ tag ถูกแก้หลังเวลาที่ Policy ตรวจล่าสุด"""
+    for it in items:
+        changed = _parse_time(tags_changed_at.get(it["resource_id"]) or "")
+        evaluated = _parse_time(it.get("evaluated_at") or "")
+        if changed and evaluated and changed > evaluated:
+            it["who"] = WHO_PENDING
+    return items
 
 
 def rg_query(assignment: str) -> str:
@@ -84,7 +108,7 @@ def rg_query(assignment: str) -> str:
         "microsoft.resources/subscriptions/resourcegroups",
         'resourcecontainers | where type =~ "microsoft.resources/subscriptions/resourcegroups" | project resource_id = tolower(id), azure_id = id, resource_name = name, rg_name = name, tags',
         "Resource Group",
-    ) + _pending("resourcecontainerchanges")
+    )
 
 
 def vm_query(assignment: str) -> str:
@@ -94,44 +118,56 @@ def vm_query(assignment: str) -> str:
         "microsoft.compute/virtualmachines",
         'resources | where type =~ "microsoft.compute/virtualmachines" | project resource_id = tolower(id), azure_id = id, resource_name = name, rg_name = tostring(split(id, "/")[4]), tags',
         "Virtual Machine",
-    ) + _pending("resourcechanges")
+    )
 
 
 def all_query(assignment: str) -> str:
-    """RG และ VM รวมในผลลัพธ์เดียว (ใช้ใน Workbook) ตรวจรอ Policy ครั้งเดียวหลัง union
-    เพราะ Resource Graph จำกัด join ไม่เกิน 3 ครั้งต่อ query"""
-    rg = rg_query(assignment).split("| join kind=leftouter (resourcecontainerchanges")[0]
-    vm = vm_query(assignment).split("| join kind=leftouter (resourcechanges")[0]
-    return rg + "| union (\n" + vm + ")\n" + _pending("resourcechanges | union resourcecontainerchanges")
+    """RG และ VM รวมในผลลัพธ์เดียว (ใช้ใน Workbook)"""
+    return rg_query(assignment) + "| union (\n" + vm_query(assignment) + ")\n"
+
+
+def _run(client, query: str, subscription_ids: list[str] | None) -> list[dict]:
+    from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
+
+    rows: list[dict] = []
+    skip_token = None
+    while True:
+        opts = QueryRequestOptions(result_format="objectArray", top=1000, skip_token=skip_token)
+        req = QueryRequest(query=query, options=opts)
+        if subscription_ids:
+            req.subscriptions = subscription_ids
+        res = client.resources(req)
+        rows.extend(res.data)
+        skip_token = res.skip_token
+        if not skip_token:
+            return rows
 
 
 def fetch_items(credential, assignment: str, subscription_ids: list[str] | None = None) -> list[dict]:
-    """ดึงรายการที่ไม่ผ่านจาก Resource Graph (RG + VM)"""
+    """ดึงรายการที่ไม่ผ่านจาก Resource Graph (RG + VM) แล้วแยกรายการที่รอ Policy ตรวจซ้ำ"""
+    import logging
+
     from azure.mgmt.resourcegraph import ResourceGraphClient
-    from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
 
     client = ResourceGraphClient(credential)
     items: list[dict] = []
     for q in (rg_query(assignment), vm_query(assignment)):
-        skip_token = None
-        while True:
-            opts = QueryRequestOptions(result_format="objectArray", top=1000, skip_token=skip_token)
-            req = QueryRequest(query=q, options=opts)
-            if subscription_ids:
-                req.subscriptions = subscription_ids
-            res = client.resources(req)
-            items.extend(res.data)
-            skip_token = res.skip_token
-            if not skip_token:
-                break
+        items.extend(_run(client, q, subscription_ids))
     for it in items:
         # Resource Graph ไม่ยอมให้ตั้งชื่อคอลัมน์ว่า kind (ParserFailure) จึงใช้ resource_kind / resource_name ใน query แล้วแปลงกลับตรงนี้
         it["kind"] = it.pop("resource_kind", None) or it.get("kind") or ""
         it["name"] = it.pop("resource_name", None) or it.get("name") or ""
         it["resource_id"] = (it.get("resource_id") or "").lower()
         for k in ("name", "rg_name", "cause", "detail", "owner_value", "who", "evaluated_at"):
-            it[k] = it.get(k) or ""
-    return items
+            it[k] = str(it.get(k) or "")
+    changed: dict[str, str] = {}
+    for table in CHANGE_TABLES:
+        try:
+            for r in _run(client, changes_query(table), subscription_ids):
+                changed[(r.get("resource_id") or "").lower()] = str(r.get("tags_changed_at") or "")
+        except Exception:  # noqa: BLE001 อ่านประวัติไม่ได้ก็ยังส่งรายงานได้ แค่ไม่แยกรายการที่รอตรวจซ้ำ
+            logging.exception("อ่าน %s ไม่สำเร็จ ข้ามการแยกรายการที่รอ Policy ตรวจซ้ำ", table)
+    return mark_pending(items, changed)
 
 
 def filter_scope(items: list[dict], rg_regex: str = "") -> list[dict]:

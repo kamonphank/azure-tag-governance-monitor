@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "function"))
 
-from tag_governance.queries import WHO_ASK, WHO_FIND, WHO_FIX, WHO_PENDING, all_query  # noqa: E402
+from tag_governance.queries import CHANGE_TABLES, WHO_ASK, WHO_FIND, WHO_FIX, WHO_PENDING, all_query, changes_query  # noqa: E402
 
 ASSIGNMENT = "rg-tag-governance-audit"
 OUT = ROOT / "workbook" / "tag-governance.workbook.json"
@@ -57,8 +57,34 @@ def _width(column: str, width: str, formatter: int = 0) -> dict:
     return {"columnMatch": column, "formatter": formatter, "formatOptions": {"customColumnWidthSetting": width}}
 
 
+def _changes_param(name: str, table: str) -> dict:
+    query = (
+        changes_query(table)
+        + "| summarize pairs = make_list(strcat('\"', resource_id, '\":\"', tostring(tags_changed_at), '\"'))\n"
+        + '| project value = strcat("{", array_strcat(pairs, ","), "}")'
+    )
+    return {
+        "id": f"tg-{name.lower()}",
+        "version": "KqlParameterItem/1.0",
+        "name": name,
+        "type": 1,
+        "query": query,
+        "crossComponentResources": ["{Subscription}"],
+        "isHiddenWhenLocked": True,
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+    }
+
+
 def build() -> dict:
-    base = all_query(ASSIGNMENT)
+    # ตารางประวัติการเปลี่ยนแปลง join กับตารางอื่นไม่ได้ จึงให้ parameter ที่ซ่อนไว้ query แยก
+    # แล้วส่งผลเป็น JSON {resource_id: เวลาที่แก้ tag ล่าสุด} เข้ามาใน query หลัก (ตรรกะเดียวกับ queries.mark_pending)
+    base = (
+        all_query(ASSIGNMENT)
+        + "| extend rg_changed = tostring(todynamic('{ChangedRG}')[resource_id]), vm_changed = tostring(todynamic('{ChangedVM}')[resource_id])\n"
+        + "| extend tags_changed_at = todatetime(iff(isnotempty(rg_changed), rg_changed, vm_changed))\n"
+        + f'| extend who = iff(isnotnull(tags_changed_at) and tags_changed_at > evaluated_at, "{WHO_PENDING}", who)\n'
+    )
 
     tiles = [
         ("ไม่ผ่านทั้งหมด", f'who != "{WHO_PENDING}"'),  # รายการที่รอ Policy ตรวจซ้ำไม่นับรวม
@@ -151,6 +177,17 @@ def build() -> dict:
                     "resourceType": "microsoft.resourcegraph/resources",
                 },
                 "name": "parameters - sub",
+            },
+            {
+                "type": 9,
+                "content": {
+                    "version": "KqlParameterItem/1.0",
+                    "parameters": [_changes_param(name, table) for name, table in zip(("ChangedRG", "ChangedVM"), CHANGE_TABLES)],
+                    "style": "pills",
+                    "queryType": 1,
+                    "resourceType": "microsoft.resourcegraph/resources",
+                },
+                "name": "parameters - changes (hidden)",
             },
             {
                 "type": 3,

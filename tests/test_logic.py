@@ -307,3 +307,27 @@ def test_workbook_query_stays_within_resource_graph_limits():
     for it in wb["items"]:
         q = it.get("content", {}).get("query", "")
         assert q.count("| join") <= 3 and q.count("mv-expand") <= 3, it["name"]
+
+
+def test_mark_pending_only_when_tags_changed_after_policy_scan():
+    items = [
+        {**item("a"), "evaluated_at": "2026-10-16T07:00:00Z"},
+        {**item("b"), "evaluated_at": "2026-10-16T07:00:00Z"},
+        {**item("c"), "evaluated_at": "2026-10-16T07:00:00Z"},
+    ]
+    changed = {"a": "2026-10-16T08:30:00.1234567Z", "b": "2026-10-15T23:00:00Z"}
+    out = queries.mark_pending(items, changed)
+    assert [i["who"] for i in out] == [queries.WHO_PENDING, "Cloud team แก้ได้", "Cloud team แก้ได้"]
+
+
+def test_change_tables_are_never_joined_with_other_tables():
+    # Resource Graph ไม่อนุญาตให้ resourcechanges / resourcecontainerchanges อยู่ใน query เดียวกับตารางอื่น
+    import json
+
+    wb = json.loads((Path(__file__).resolve().parent.parent / "workbook" / "tag-governance.workbook.json").read_text(encoding="utf-8"))
+    queries_ = [it["content"].get("query", "") for it in wb["items"]]
+    queries_ += [p.get("query", "") for it in wb["items"] for p in it["content"].get("parameters", [])]
+    queries_ += [queries.rg_query("x"), queries.vm_query("x"), queries.all_query("x")]
+    for q in queries_:
+        if "changes" in q and ("resourcechanges" in q or "resourcecontainerchanges" in q):
+            assert q.count("changes\n") == 1 and "policyresources" not in q and "| union" not in q and "| join" not in q
