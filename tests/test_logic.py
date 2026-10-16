@@ -274,3 +274,9 @@ def test_email_groups_by_action_and_shows_detail():
     assert "ไม่มี department" in h and h.index("ถาม owner") < h.index("หา owner ก่อน")
     assert "a@example.com<br>b@example.com" in h  # owner หลายคนแยกบรรทัด ไม่ติดเป็นลิงก์เดียว
     assert h.count("RG-A") == 1  # รายการใหม่ไม่ถูกแสดงซ้ำในตารางแยก
+
+
+def test_email_shows_policy_evaluation_time_in_thai_time():
+    items = [{**item("a", name="RG-A"), "evaluated_at": "2026-10-16T07:12:30.5Z"}]
+    email, _, _ = core.run_report(items, core.empty_state(), date(2026, 10, 19))
+    assert "ตรวจ 16/10 14:12" in email["html"] and "ตรวจ 16/10 14:12" in email["text"]

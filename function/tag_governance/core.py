@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 import html
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 SLA_DAYS_DEFAULT = 14
 
@@ -112,6 +112,18 @@ def _owners(r: dict) -> list[str]:
     return [o.strip() for o in (r.get("owner_value") or "").split(",") if o.strip()]
 
 
+def _evaluated(r: dict) -> str:
+    """เวลาที่ Policy ประเมินล่าสุด แปลงเป็นเวลาไทย เช่น "16/10 14:12" (ว่างถ้าไม่มีข้อมูล)"""
+    v = r.get("evaluated_at") or ""
+    try:
+        t = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return t.astimezone(timezone(timedelta(hours=7))).strftime("%d/%m %H:%M")
+
+
 def _age_html(age, sla_days: int) -> str:
     if age == "" or age is None:
         return ""
@@ -131,6 +143,8 @@ def _table(rows: list[dict], sla_days: int, new_ids: set[str]) -> str:
     for r in rows:
         td = f"padding:10px;border-bottom:1px solid {_LINE};vertical-align:top;font-size:14px;color:{_INK}"
         where = "Resource Group" if r.get("kind") == "Resource Group" else f"VM · {r.get('rg_name') or '-'}"
+        if _evaluated(r):
+            where += f" · ตรวจ {_evaluated(r)}"
         new = " " + _pill("ใหม่", "#e8f0fe", "#1a56db") if r.get("resource_id") in new_ids else ""
         owners = "<br>".join(_e(o) for o in _owners(r)) or f'<span style="color:{_MUTED}">-</span>'
         body += (
@@ -186,7 +200,8 @@ def _text_rows(rows: list[dict], new_ids: set[str]) -> str:
     for r in rows:
         where = "RG" if r.get("kind") == "Resource Group" else f"VM ใน {r.get('rg_name') or '-'}"
         new = " [ใหม่]" if r.get("resource_id") in new_ids else ""
-        out.append(f"  - {r['name']} ({where}){new} | {_detail(r)} | owner: {', '.join(_owners(r)) or '-'} | อายุ {r['age_days']} วัน")
+        ev = f" | ตรวจ {_evaluated(r)}" if _evaluated(r) else ""
+        out.append(f"  - {r['name']} ({where}){new} | {_detail(r)}{ev} | owner: {', '.join(_owners(r)) or '-'} | อายุ {r['age_days']} วัน")
     return "\n".join(out)
 
 
@@ -267,6 +282,8 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
     parts.append(
         f'<div style="margin-top:32px;padding-top:14px;border-top:1px solid {_LINE};font-size:12px;color:{_MUTED};line-height:1.6">'
         f"{legend}"
+        "<div style='margin-top:8px'>ตรวจ = เวลาที่ Azure Policy ประเมินล่าสุด ถ้าแก้ tag หลังเวลานี้แล้วยังอยู่ในรายการ แปลว่ารอ Policy ประเมินใหม่ (ปกติภายใน 24 ชม.) "
+        "หรือสั่งตรวจทันทีด้วย <code>az policy state trigger-scan --resource-group &lt;ชื่อ RG&gt;</code></div>"
         f"<div style='margin-top:8px'>อายุ = จำนวนวันนับจากวันที่ระบบพบรายการครั้งแรก · ค้างเกิน {sla_days} วันจะถูกแจ้ง และถ้ายังค้างในรอบถัดไปจะ Cc ผู้จัดการ</div>"
         "<div style='margin-top:8px'>ส่งอัตโนมัติจาก Azure Function ทุกวันทำงานแรกของสัปดาห์ (ไม่ส่งเมื่อทุกรายการผ่านแล้ว) · ผลจาก Azure Policy อาจช้าราว 1 วันหลังแก้ tag</div>"
         "</div>"

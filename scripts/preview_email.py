@@ -19,7 +19,7 @@ TODAY = date(2026, 10, 19)
 
 
 def _it(name, kind, rg, cause, detail, owner, who):
-    return {"resource_id": f"/x/{name.lower()}", "kind": kind, "name": name, "rg_name": rg, "cause": cause, "detail": detail, "owner_value": owner, "who": who}
+    return {"resource_id": f"/x/{name.lower()}", "kind": kind, "name": name, "rg_name": rg, "cause": cause, "detail": detail, "owner_value": owner, "who": who, "evaluated_at": "2026-10-19T00:12:00Z"}
 
 
 RG, VM = "Resource Group", "Virtual Machine"

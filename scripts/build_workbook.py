@@ -87,7 +87,7 @@ def build() -> dict:
         + f'| where "*" in ({{Kind}}) or resource_kind in ({{Kind}})\n'
         + f'| extend who_order = {WHO_ORDER}, rg_col = iff({KIND_RG}, "", rg_name)\n'
         + "| order by who_order asc, resource_kind asc, resource_name asc\n"
-        + "| project azure_id, resource_kind, rg_col, who, detail, owner_value"
+        + "| project azure_id, resource_kind, rg_col, who, detail, owner_value, evaluated_at"
     )
 
     owners_q = (
@@ -176,7 +176,9 @@ def build() -> dict:
                 "text - legend",
                 f"**{WHO_FIX}** — tag มีค่าแล้วแต่รูปแบบหรือค่าไม่ถูก แก้ได้เลย  \n"
                 f"**{WHO_ASK}** — มี owner แต่ขาด tag อื่น ติดต่อ owner เพื่อขอข้อมูล  \n"
-                f"**{WHO_FIND}** — ไม่มี owner ที่ติดต่อได้ ต้องหาเจ้าของ resource ก่อน",
+                f"**{WHO_FIND}** — ไม่มี owner ที่ติดต่อได้ ต้องหาเจ้าของ resource ก่อน\n\n"
+                "แก้ tag แล้วแต่ยังอยู่ในรายการ: ดูคอลัมน์ **Policy ตรวจล่าสุด** ถ้าเป็นเวลาก่อนที่แก้ แปลว่ารอ Policy ประเมินใหม่ (ปกติภายใน 24 ชม.) "
+                "หรือสั่งตรวจทันทีด้วย `az policy state trigger-scan --resource-group <ชื่อ RG>` (ใช้เวลาหลายนาที)",
             ),
             _text("text - items", "## รายการที่ไม่ผ่าน"),
             {
@@ -219,6 +221,7 @@ def build() -> dict:
                             {"columnId": "who", "label": "ต้องทำ"},
                             {"columnId": "detail", "label": "สิ่งที่ไม่ผ่าน"},
                             {"columnId": "owner_value", "label": "ค่า owner ที่มี"},
+                            {"columnId": "evaluated_at", "label": "Policy ตรวจล่าสุด"},
                         ],
                     },
                 ),
