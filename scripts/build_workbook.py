@@ -61,20 +61,24 @@ def build() -> dict:
     base = all_query(ASSIGNMENT)
 
     tiles = [
-        ("ไม่ผ่านทั้งหมด", "true"),
+        ("ไม่ผ่านทั้งหมด", ""),
         (WHO_FIX, f'who == "{WHO_FIX}"'),
         (WHO_ASK, f'who == "{WHO_ASK}"'),
         (WHO_FIND, f'who == "{WHO_FIND}"'),
     ]
-    counts = ", ".join(
-        f"n{i} = countif({c}), rg{i} = countif({c} and {KIND_RG}), vm{i} = countif({c} and {KIND_VM})" for i, (_, c) in enumerate(tiles)
-    )
-    packs = ", ".join(f'pack("ord", {i}, "title", "{t}", "n", n{i}, "sub", strcat("RG ", rg{i}, "  ·  VM ", vm{i}))' for i, (t, _) in enumerate(tiles))
+
+    def _counts(i: int, c: str) -> str:
+        if not c:  # Resource Graph ไม่รับ countif(true) จึงใช้ count() กับช่องรวม
+            return f"n{i} = count(), rg{i} = countif({KIND_RG}), vm{i} = countif({KIND_VM})"
+        return f"n{i} = countif({c}), rg{i} = countif({c} and {KIND_RG}), vm{i} = countif({c} and {KIND_VM})"
+
+    counts = ", ".join(_counts(i, c) for i, (_, c) in enumerate(tiles))
+    packs = ", ".join(f'pack("ord", {i}, "k", "{t}", "n", n{i}, "sub", strcat("RG ", rg{i}, "  ·  VM ", vm{i}))' for i, (t, _) in enumerate(tiles))
     tiles_q = (
         base
         + f"| summarize {counts}\n"
         + f"| extend p = pack_array({packs})\n"
-        + "| mv-expand p\n| project ord = toint(p.ord), title = tostring(p.title), n = toint(p.n), sub = tostring(p.sub)\n| order by ord asc"
+        + "| mv-expand p\n| project ord = toint(p.ord), title = tostring(p.k), n = toint(p.n), sub = tostring(p.sub)\n| order by ord asc"
     )
 
     items_q = (

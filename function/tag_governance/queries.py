@@ -21,6 +21,7 @@ _BASE = """policyresources
 | where tostring(properties.complianceState) == "NonCompliant"
 """
 
+# เรียงสิ่งที่ไม่ผ่าน: owner ก่อน แล้ว tag ที่ไม่มี แล้ว tag ที่ค่าไม่ถูก
 # policyDefinitionReferenceId ของ initiative ตั้งชื่อเป็น require-tag-<ชื่อ tag> จึงอ่านชื่อ tag จาก ID ได้
 _DETAIL = """| extend t = todynamic(tostring(tags))
 | extend owner_value = tostring(t.owner)
@@ -28,6 +29,8 @@ _DETAIL = """| extend t = todynamic(tostring(tags))
 | extend tag = replace_string(tolower(tostring(policy)), "require-tag-", "")
 | extend tag_value = tostring(t[tag])
 | extend problem = case(tag == "owner" and owner_value =~ "nan", "owner = nan", tag == "owner" and isempty(tag_value), "ไม่มี owner", tag == "owner", "owner รูปแบบผิด", isempty(tag_value), strcat("ไม่มี ", tag), strcat(tag, " ค่าไม่ถูก: ", tag_value))
+| extend rank = case(tag == "owner", 0, isempty(tag_value), 1, 2)
+| order by resource_id asc, rank asc, tag asc
 | summarize problems = make_list(problem), n_missing = countif(tag != "owner" and isempty(tag_value)), failed_policies = make_set(policy) by resource_id, azure_id, resource_name, rg_name, owner_value, tags_s = tostring(tags)
 | extend cause = case(isempty(tags_s) or tags_s == "{{}}", "ไม่มี tag เลย", owner_value =~ "nan", "owner = nan", isempty(owner_value), "ไม่มี owner tag", tostring(failed_policies) contains "owner", "owner รูปแบบผิด", "tag อื่นไม่ครบ")
 | extend detail = iff(cause == "ไม่มี tag เลย", "ไม่มี tag เลย", array_strcat(problems, ", "))
