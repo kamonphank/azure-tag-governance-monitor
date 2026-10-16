@@ -51,7 +51,7 @@
         "crossComponentResources": [
           "{Subscription}"
         ],
-        "size": 4,
+        "size": 3,
         "visualization": "tiles",
         "tileSettings": {
           "showBorder": true,
@@ -194,21 +194,21 @@
               "formatOptions": {
                 "linkTarget": "Resource",
                 "showIcon": false,
-                "customColumnWidthSetting": "24ch"
+                "customColumnWidthSetting": "20ch"
               }
             },
             {
               "columnMatch": "resource_kind",
               "formatter": 0,
               "formatOptions": {
-                "customColumnWidthSetting": "16ch"
+                "customColumnWidthSetting": "15ch"
               }
             },
             {
               "columnMatch": "rg_col",
               "formatter": 0,
               "formatOptions": {
-                "customColumnWidthSetting": "16ch"
+                "customColumnWidthSetting": "15ch"
               }
             },
             {
@@ -249,7 +249,14 @@
               "columnMatch": "detail",
               "formatter": 0,
               "formatOptions": {
-                "customColumnWidthSetting": "48ch"
+                "customColumnWidthSetting": "70ch"
+              }
+            },
+            {
+              "columnMatch": "owner_value",
+              "formatter": 0,
+              "formatOptions": {
+                "customColumnWidthSetting": "40ch"
               }
             }
           ],
@@ -313,7 +320,7 @@
               "columnMatch": "owner",
               "formatter": 0,
               "formatOptions": {
-                "customColumnWidthSetting": "32ch"
+                "customColumnWidthSetting": "30ch"
               }
             },
             {
@@ -342,7 +349,14 @@
               "columnMatch": "n",
               "formatter": 0,
               "formatOptions": {
-                "customColumnWidthSetting": "10ch"
+                "customColumnWidthSetting": "12ch"
+              }
+            },
+            {
+              "columnMatch": "entries",
+              "formatter": 0,
+              "formatOptions": {
+                "customColumnWidthSetting": "120ch"
               }
             }
           ],

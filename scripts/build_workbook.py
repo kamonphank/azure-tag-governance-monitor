@@ -157,7 +157,7 @@ def build() -> dict:
                 "type": 3,
                 "content": _arg(
                     tiles_q,
-                    size=4,
+                    size=3,
                     visualization="tiles",
                     tileSettings={
                         "showBorder": True,
@@ -205,11 +205,12 @@ def build() -> dict:
                         "rowLimit": 1000,
                         "filter": True,
                         "formatters": [
-                            {"columnMatch": "azure_id", "formatter": 13, "formatOptions": {"linkTarget": "Resource", "showIcon": False, "customColumnWidthSetting": "24ch"}},
-                            _width("resource_kind", "16ch"),
-                            _width("rg_col", "16ch"),
+                            {"columnMatch": "azure_id", "formatter": 13, "formatOptions": {"linkTarget": "Resource", "showIcon": False, "customColumnWidthSetting": "20ch"}},
+                            _width("resource_kind", "15ch"),
+                            _width("rg_col", "15ch"),
                             {**_who_formatter("who"), "formatOptions": {**_who_formatter("who")["formatOptions"], "customColumnWidthSetting": "18ch"}},
-                            _width("detail", "48ch"),
+                            _width("detail", "70ch"),
+                            _width("owner_value", "40ch"),
                         ],
                         "labelSettings": [
                             {"columnId": "azure_id", "label": "ชื่อ"},
@@ -242,7 +243,7 @@ def build() -> dict:
                         "rowLimit": 1000,
                         "filter": True,
                         "formatters": [
-                            _width("owner", "32ch"),
+                            _width("owner", "30ch"),
                             {
                                 "columnMatch": "email_ok",
                                 "formatter": 18,
@@ -255,7 +256,8 @@ def build() -> dict:
                                     ],
                                 },
                             },
-                            _width("n", "10ch"),
+                            _width("n", "12ch"),
+                            _width("entries", "120ch"),
                         ],
                         "labelSettings": [
                             {"columnId": "owner", "label": "owner"},
