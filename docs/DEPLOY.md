@@ -100,7 +100,7 @@ Copy-Item config/team.example.psd1 config/prod.psd1
 
 จากนั้นสคริปต์สร้าง resource ทั้งชุด (Storage, Function App, Key Vault, Log Analytics, Application Insights, Workbook, ACS Email) ให้สิทธิ์ Reader แก่ Function แล้วส่งโค้ดขึ้น Function App ท้ายสุดสคริปต์พิมพ์ขั้นตอนถัดไปให้
 
-### Step 7: ตรวจสอบและเปิดส่งอีเมล
+### Step 7: ตรวจสอบและเริ่มเก็บข้อมูล
 
 รอ 2-3 นาทีให้สิทธิ์แพร่กระจาย แล้วตรวจที่ Azure Portal
 
@@ -108,14 +108,33 @@ Copy-Item config/team.example.psd1 config/prod.psd1
 - **Function App > Environment variables** แถว `TG_ACS_CONNECTION_STRING` มีเครื่องหมายถูกสีเขียว (อ่าน secret จาก Key Vault ได้)
 - **Monitor > Workbooks > Shared > "Tag Governance"** เปิดได้ และตัวเลขใกล้เคียงหน้า Policy compliance
 
-เมื่อเรียบร้อย ระบบเก็บ snapshot ไปเรื่อยๆ โดยยังไม่ส่งอีเมล ควรปล่อยไว้อย่างน้อย 1 สัปดาห์เพื่อให้มีข้อมูลอายุของรายการ แล้วเปิดส่งอีเมล
+จากนั้นบันทึก snapshot แรกทันที เพื่อให้ระบบเริ่มนับอายุของรายการตั้งแต่วันนี้ (ถ้าไม่ทำ ระบบจะเริ่มนับในวันทำงานแรกของสัปดาห์ถัดไป) โดยเปิด endpoint ทดสอบ `/api/run` ชั่วคราวด้วย `-Set` แล้วปิดกลับ
+
+```powershell
+$cfg = './config/prod.psd1'
+$rg = '<resource-group>'; $fn = '<function-app>'   # ชื่อ Function App อยู่ในผลของ deploy.ps1 (บรรทัด "Function App:")
+
+./scripts/deploy.ps1 -ConfigPath $cfg -Part Infra -Set @{ EnableTestEndpoint = $true }   # เปิด /api/run ชั่วคราว
+$key = az functionapp function keys list -g $rg -n $fn --function-name run_now --query default -o tsv
+
+Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&force=1" | ConvertTo-Json -Depth 6   # ดูผลก่อน ไม่บันทึกอะไร
+Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=0&force=1" | ConvertTo-Json -Depth 6   # บันทึก snapshot แรก เรียกครั้งเดียว
+
+./scripts/deploy.ps1 -ConfigPath $cfg -Part Infra   # ปิด /api/run กลับตามค่าใน config
+```
+
+- ผลของ `dry_run=1` ต้องมี `"status": "ok"` และ `summary.total` ใกล้เคียงหน้า Policy compliance
+- ผลของ `dry_run=0` ต้องมี `"dry_run": false` และเพราะ `MailEnabled` ยังเป็น `$false` ระบบจะไม่ส่งอีเมล แต่บันทึก `state.json` และ `snapshots/<date>.json` ใน Blob container `tag-governance`
+- `$key` คือ function key ดูคำอธิบายในหัวข้อ [Testing](#3-testing)
+
+ปล่อยให้ระบบเก็บ snapshot ไปอย่างน้อย 1 สัปดาห์เพื่อให้มีข้อมูลอายุของรายการ แล้วเปิดส่งอีเมล
 
 ```powershell
 # แก้ MailEnabled = $true ใน config/prod.psd1 แล้วรัน
 ./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -Part Infra
 ```
 
-ทดสอบก่อนเปิดส่งจริงได้ตามหัวข้อ [Testing](#3-testing)
+ทดสอบเพิ่มเติมได้ตามหัวข้อ [Testing](#3-testing)
 
 ### Checklist ก่อนใช้งานจริง
 
@@ -179,6 +198,8 @@ $rg = '<resource-group>'; $fn = '<function-app>'
 $key = az functionapp function keys list -g $rg -n $fn --function-name run_now --query default -o tsv
 Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&force=1" | ConvertTo-Json -Depth 6
 ```
+
+**Function key** endpoint `/api/run` และ `/api/send` กำหนดให้ผู้เรียกต้องแนบ key ใน `?code=` ทุกครั้ง (auth level `FUNCTION`) ถ้าไม่มีหรือผิดจะได้ `401` ซึ่งป้องกันไม่ให้คนที่รู้แค่ URL สั่งส่งอีเมลหรือแก้ state ได้ Azure สร้าง key ชื่อ `default` ให้แต่ละ function อัตโนมัติ คำสั่ง `az functionapp function keys list` ใช้สิทธิ์ Azure ของผู้ที่ login อยู่ไปอ่าน key นั้นมา จึงต้องดึงแยกตามชื่อ function (`run_now` หรือ `send_now`) ถือว่า key เป็นความลับ ห้ามแปะลงเอกสารหรือแชต หากรั่วให้สร้างใหม่ที่ Portal > Function App > เลือก function > Function Keys > Renew
 
 ตัวอย่างในเอกสารนี้ใช้ `Invoke-RestMethod` ซึ่งเป็นคำสั่งของ PowerShell เอง ใช้ได้ทั้ง Windows PowerShell 5.1 และ PowerShell 7 และต่อ `| ConvertTo-Json -Depth 6` เพื่อให้เห็นผลเป็น JSON ครบทุกระดับ (ถ้าไม่ต่อ ค่าที่เป็น list จะแสดงเป็น `System.Object[]`) ไม่ควรใช้ `curl` ใน Windows PowerShell 5.1 เพราะเป็น alias ของ `Invoke-WebRequest` ซึ่งไม่รู้จัก option ของ curl เช่น `-X POST` หากต้องการ curl จริงให้พิมพ์ `curl.exe`
 
