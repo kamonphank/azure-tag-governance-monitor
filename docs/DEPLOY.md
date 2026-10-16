@@ -192,6 +192,8 @@ $key = az functionapp function keys list -g $rg -n $fn --function-name run_now -
 Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&force=1" | ConvertTo-Json -Depth 6
 ```
 
+ตัวอย่างในเอกสารนี้ใช้ `Invoke-RestMethod` ซึ่งเป็นคำสั่งของ PowerShell เอง ใช้ได้ทั้ง Windows PowerShell 5.1 และ PowerShell 7 และต่อ `| ConvertTo-Json -Depth 6` เพื่อให้เห็นผลเป็น JSON ครบทุกระดับ (ถ้าไม่ต่อ ค่าที่เป็น list จะแสดงเป็น `System.Object[]`) ไม่ควรใช้ `curl` ใน Windows PowerShell 5.1 เพราะเป็น alias ของ `Invoke-WebRequest` ซึ่งไม่รู้จัก option ของ curl เช่น `-X POST` หากต้องการ curl จริงให้พิมพ์ `curl.exe`
+
 ผลที่ถูกต้องมี `"status": "ok"` พร้อม `summary` (จำนวนรายการ) และตัวอย่างอีเมลที่ระบบจะส่ง (เมื่อมีรายการค้าง)
 
 | Parameter | Description |
@@ -208,9 +210,12 @@ Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&for
 **ส่งอีเมลทันทีตอนไหนก็ได้** ตั้ง `EnableManualSend = $true` แล้วรัน `-Part Infra` จากนั้นเรียก
 
 ```powershell
-$key = az functionapp function keys list -g <rg> -n <function-app> --function-name send_now --query default -o tsv
-curl -X POST "https://<function-app>.azurewebsites.net/api/send?code=$key"
+$rg = '<resource-group>'; $fn = '<function-app>'
+$key = az functionapp function keys list -g $rg -n $fn --function-name send_now --query default -o tsv
+Invoke-RestMethod -Method Post "https://$fn.azurewebsites.net/api/send?code=$key" | ConvertTo-Json -Depth 6
 ```
+
+key ของแต่ละ function แยกกัน ต้องดึง key ของ `send_now` ไม่ใช่ของ `run_now` เรียกแต่ละครั้งส่งอีเมล 1 ฉบับ (ดูได้จาก `message_id` ในผลลัพธ์)
 
 endpoint นี้ส่งอีเมลด้วยข้อมูลล่าสุดทันทีโดยไม่สนว่าเป็นวันส่งหรือไม่ แต่ยังเคารพ `MailEnabled` และไม่ส่งเมื่อทุกรายการผ่านแล้ว ระบบไม่บันทึก state และ snapshot จากการเรียกนี้ จึงไม่ทำให้รายการขยับไป Stage 2 เร็วกว่ารอบประจำสัปดาห์ (ต่างจาก `run?dry_run=0&force=1` ที่บันทึก state)
 

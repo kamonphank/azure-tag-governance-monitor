@@ -240,3 +240,14 @@ def test_runner_manual_send_any_day_without_persisting(tmp_path, env):
     r = runner.run(today=date(2026, 10, 21), dry_run=False, force=True, persist=False, items=[item("a"), item("b")], store=st)
     assert r["status"] == "ok" and len(env) == 2
     assert st.get("state.json") == before and st.get("snapshots/2026-10-21.json") is None
+
+
+def test_http_json_response_declares_utf8():
+    # ไม่มี charset -> Invoke-RestMethod (PowerShell 5.1) อ่านเป็น ISO-8859-1 แล้วภาษาไทยเพี้ยน
+    import json
+
+    import function_app
+
+    r = function_app._json_response({"subject": "ค้าง 8 รายการ"})
+    assert r.mimetype == "application/json; charset=utf-8"
+    assert json.loads(r.get_body().decode("utf-8"))["subject"] == "ค้าง 8 รายการ"

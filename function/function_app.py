@@ -9,6 +9,12 @@ from tag_governance import runner
 app = func.FunctionApp()
 
 
+def _json_response(result: dict) -> func.HttpResponse:
+    # ต้องระบุ charset ใน Content-Type ไม่งั้น Invoke-RestMethod (Windows PowerShell 5.1) อ่านเป็น ISO-8859-1 แล้วภาษาไทยเพี้ยน
+    body = json.dumps(result, ensure_ascii=False, indent=2, default=str)
+    return func.HttpResponse(body, mimetype="application/json; charset=utf-8")
+
+
 # ทุกวันจันทร์-ศุกร์ 09:00 เวลาไทย (= 02:00 UTC) แต่ส่งเมลเฉพาะ "วันทำงานแรกของสัปดาห์"
 # (ถ้าจันทร์เป็นวันหยุด จะส่งวันอังคารแทน) ตรรกะอยู่ใน schedule.is_send_day
 @app.timer_trigger(schedule="0 0 2 * * 1-5", arg_name="timer", run_on_startup=False, use_monitor=True)
@@ -34,7 +40,7 @@ def run_now(req: func.HttpRequest) -> func.HttpResponse:
         # ส่งข้อความ error กลับไปด้วย (endpoint นี้ต้องมี function key และเปิดเฉพาะตอนทดสอบ) จะได้ไม่ต้องไปเปิด log
         logging.exception("run_now failed")
         return func.HttpResponse(f"{type(e).__name__}: {e}", status_code=500, mimetype="text/plain; charset=utf-8")
-    return func.HttpResponse(json.dumps(result, ensure_ascii=False, indent=2, default=str), mimetype="application/json")
+    return _json_response(result)
 
 
 # ส่งเมลรายงานทันทีตอนไหนก็ได้ (ไม่ต้องรอวันทำงานแรกของสัปดาห์): POST /api/send  (ต้องมี function key)
@@ -50,4 +56,4 @@ def send_now(req: func.HttpRequest) -> func.HttpResponse:
         logging.exception("send_now failed")
         return func.HttpResponse(f"{type(e).__name__}: {e}", status_code=500, mimetype="text/plain; charset=utf-8")
     logging.info("send_now: %s", json.dumps(result, ensure_ascii=False, default=str))
-    return func.HttpResponse(json.dumps(result, ensure_ascii=False, indent=2, default=str), mimetype="application/json")
+    return _json_response(result)

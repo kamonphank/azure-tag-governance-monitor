@@ -299,7 +299,7 @@ try {
 2) ทดสอบ (ต้องเปิด endpoint ทดสอบก่อน):
    az functionapp config appsettings set -g $rg -n $funcName --settings TG_HTTP_ENABLED=true -o none
    `$key = az functionapp function keys list -g $rg -n $funcName --function-name run_now --query default -o tsv
-   curl "https://$funcName.azurewebsites.net/api/run?code=`$key&dry_run=1&force=1"
+   Invoke-RestMethod "https://$funcName.azurewebsites.net/api/run?code=`$key&dry_run=1&force=1" | ConvertTo-Json -Depth 6
    ... ทดสอบเสร็จแล้วปิดกลับ:
    az functionapp config appsettings set -g $rg -n $funcName --settings TG_HTTP_ENABLED=false -o none
 
@@ -307,7 +307,7 @@ try {
 4) เมื่อพร้อมส่งเมลจริง: ตั้ง MailEnabled = `$true ใน config แล้วรัน  ./scripts/deploy.ps1 -Part Infra
 5) ส่งเมลทันทีนอกรอบ (ต้องตั้ง EnableManualSend = `$true):
    `$key = az functionapp function keys list -g $rg -n $funcName --function-name send_now --query default -o tsv
-   curl -X POST "https://$funcName.azurewebsites.net/api/send?code=`$key"
+   Invoke-RestMethod -Method Post "https://$funcName.azurewebsites.net/api/send?code=`$key" | ConvertTo-Json -Depth 6
 "@
 }
 finally {
