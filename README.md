@@ -22,7 +22,7 @@ repository นี้พัฒนาต่อจาก [`azure-policy-rg-vm-tag-g
 
 Azure Policy ตรวจสอบ tag ให้อยู่แล้ว แต่รายงานได้เพียงจำนวนรายการที่ไม่ผ่านในขณะนั้น ไม่ระบุว่าแต่ละรายการค้างมานานเท่าใด และไม่แจ้งเตือนผู้ที่เกี่ยวข้อง ระบบนี้จึงเพิ่มความสามารถ 3 ประการดังนี้
 
-1. **Dashboard** ผ่าน Workbook ซึ่งแสดงจำนวนรายการที่ไม่ผ่านแยกตามสาเหตุ และมีรายชื่อ owner ที่ export เป็นไฟล์ได้
+1. **Dashboard** ผ่าน Workbook ซึ่งแสดงรายการที่ไม่ผ่านพร้อม tag ที่ขาดหรือผิด แยกตามสิ่งที่ Cloud team ต้องทำ (แก้ได้เลย / ถาม owner / หา owner ก่อน) และมีรายชื่อ owner ที่ export เป็นไฟล์ได้
 2. **Age tracking** โดยบันทึกวันที่ตรวจพบรายการครั้งแรกไว้ใน Blob Storage
 3. **Age-based escalation** โดยส่งอีเมลสรุปรายสัปดาห์ และแจ้งผู้จัดการเพิ่มเมื่อรายการค้างเกินกำหนด
 
@@ -128,7 +128,8 @@ flowchart LR
 |---|---|
 | `function/` | Azure Function (Python 3.11) ประกอบด้วย `function_app.py` และ `tag_governance/` (ตรรกะทั้งหมด) และ `holidays.json` |
 | `infra/` | Bicep สำหรับสร้าง Storage, Function App, ACS Email, Workbook และกำหนดสิทธิ์ Reader |
-| `workbook/` | ไฟล์ JSON ของ Workbook |
+| `workbook/` | ไฟล์ JSON ของ Workbook สร้างจาก query ใน `function/tag_governance/queries.py` ด้วย `python scripts/build_workbook.py` (ห้ามแก้ไฟล์ JSON ตรงๆ) |
+| `scripts/preview_email.py` | สร้างไฟล์ HTML ตัวอย่างอีเมลจากข้อมูลจำลอง เพื่อดูหน้าตาโดยไม่ต้อง deploy |
 | `scripts/deploy.ps1` | สคริปต์ deploy ทั้งชุด โดยอ่านค่าจากไฟล์ config |
 | `config/deploy.config.example.psd1` | ไฟล์ config ตัวอย่าง (ไฟล์จริงถูกกำหนดใน `.gitignore`) |
 | `tests/` | test suite (pytest) ครอบคลุมตรรกะวันส่ง age และการ escalate โดยไม่ต้องใช้ Azure |

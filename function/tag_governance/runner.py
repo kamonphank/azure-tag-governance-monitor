@@ -60,7 +60,7 @@ def run(
     result = {"status": "ok", "today": today.isoformat(), "summary": summary, "dry_run": dry_run, "mail_enabled": mail_enabled, "persist": persist}
 
     if email is None:
-        result["email"] = "ไม่ส่ง (ทุกรายการผ่านแล้ว)"
+        result["email"] = "ไม่ส่ง (ทุกรายการผ่านแล้ว หรือเหลือแต่รายการที่รอ Policy ตรวจซ้ำ)"
     else:
         to = _split(os.environ.get("TG_MAIL_TO", ""))
         cc = _split(os.environ.get("TG_MAIL_CC", ""))

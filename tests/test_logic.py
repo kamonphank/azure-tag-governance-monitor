@@ -1,4 +1,6 @@
+import sys
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -251,3 +253,81 @@ def test_http_json_response_declares_utf8():
     r = function_app._json_response({"subject": "ค้าง 8 รายการ"})
     assert r.mimetype == "application/json; charset=utf-8"
     assert json.loads(r.get_body().decode("utf-8"))["subject"] == "ค้าง 8 รายการ"
+
+
+def test_workbook_matches_queries():
+    # Workbook ต้องสร้างจาก queries.py เสมอ (python scripts/build_workbook.py)
+    import subprocess
+
+    root = Path(__file__).resolve().parent.parent
+    r = subprocess.run([sys.executable, str(root / "scripts" / "build_workbook.py"), "--check"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr or r.stdout
+
+
+def test_email_groups_by_action_and_shows_detail():
+    items = [
+        {**item("a", name="RG-A", owner="a@example.com,b@example.com"), "detail": "ไม่มี department", "who": "ถาม owner"},
+        {**item("b", name="RG-B", owner=""), "cause": "ไม่มี owner tag", "detail": "ไม่มี owner", "who": "หา owner ก่อน"},
+    ]
+    email, _, _ = core.run_report(items, core.empty_state(), date(2026, 10, 19))
+    h = email["html"]
+    assert "ไม่มี department" in h and h.index("ถาม owner") < h.index("หา owner ก่อน")
+    assert "a@example.com<br>b@example.com" in h  # owner หลายคนแยกบรรทัด ไม่ติดเป็นลิงก์เดียว
+    assert h.count("RG-A") == 1  # รายการใหม่ไม่ถูกแสดงซ้ำในตารางแยก
+
+
+def test_email_shows_policy_evaluation_time_in_thai_time():
+    items = [{**item("a", name="RG-A"), "evaluated_at": "2026-10-16T07:12:30.5Z"}]
+    email, _, _ = core.run_report(items, core.empty_state(), date(2026, 10, 19))
+    assert "ตรวจ 16/10 14:12" in email["html"] and "ตรวจ 16/10 14:12" in email["text"]
+
+
+def test_pending_items_not_counted_not_escalated_but_age_kept():
+    pend = {**item("p", name="RG-P"), "who": queries.WHO_PENDING}
+    state = core.empty_state()
+    for d in [date(2026, 10, 19), date(2026, 11, 2)]:
+        _, state, _ = core.run_report([item("a", name="RG-A"), pend], state, d)
+    email, state, s = core.run_report([item("a", name="RG-A"), pend], state, date(2026, 11, 9))
+    assert s["total"] == 1 and s["pending"] == 1 and s["stage2"] == 1
+    assert state["items"]["p"]["escalated_at"] is None and state["items"]["p"]["first_seen"] == "2026-10-19"
+    assert "ค้าง 1 รายการ" in email["subject"] and "รอ Policy ตรวจซ้ำ (1)" in email["html"]
+
+
+def test_no_email_when_only_pending_items_left():
+    pend = {**item("p"), "who": queries.WHO_PENDING}
+    email, _, s = core.run_report([pend], core.empty_state(), date(2026, 10, 19))
+    assert email is None and s["pending"] == 1
+
+
+def test_workbook_query_stays_within_resource_graph_limits():
+    # Resource Graph รับ join และ mv-expand ได้ไม่เกิน 3 ครั้งต่อ query
+    import json
+
+    wb = json.loads((Path(__file__).resolve().parent.parent / "workbook" / "tag-governance.workbook.json").read_text(encoding="utf-8"))
+    for it in wb["items"]:
+        q = it.get("content", {}).get("query", "")
+        assert q.count("| join") <= 3 and q.count("mv-expand") <= 3, it["name"]
+
+
+def test_mark_pending_only_when_tags_changed_after_policy_scan():
+    items = [
+        {**item("a"), "evaluated_at": "2026-10-16T07:00:00Z"},
+        {**item("b"), "evaluated_at": "2026-10-16T07:00:00Z"},
+        {**item("c"), "evaluated_at": "2026-10-16T07:00:00Z"},
+    ]
+    changed = {"a": "2026-10-16T08:30:00.1234567Z", "b": "2026-10-15T23:00:00Z"}
+    out = queries.mark_pending(items, changed)
+    assert [i["who"] for i in out] == [queries.WHO_PENDING, "Cloud team แก้ได้", "Cloud team แก้ได้"]
+
+
+def test_change_tables_are_never_joined_with_other_tables():
+    # Resource Graph ไม่อนุญาตให้ resourcechanges / resourcecontainerchanges อยู่ใน query เดียวกับตารางอื่น
+    import json
+
+    wb = json.loads((Path(__file__).resolve().parent.parent / "workbook" / "tag-governance.workbook.json").read_text(encoding="utf-8"))
+    queries_ = [it["content"].get("query", "") for it in wb["items"]]
+    queries_ += [p.get("query", "") for it in wb["items"] for p in it["content"].get("parameters", [])]
+    queries_ += [queries.rg_query("x"), queries.vm_query("x"), queries.all_query("x")]
+    for q in queries_:
+        if "changes" in q and ("resourcechanges" in q or "resourcecontainerchanges" in q):
+            assert q.count("changes\n") == 1 and "policyresources" not in q and "| union" not in q and "| join" not in q
