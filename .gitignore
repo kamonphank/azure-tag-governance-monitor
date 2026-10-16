@@ -1,0 +1,41 @@
+# ===== ห้ามให้ข้อมูลจริงขึ้น public repo =====
+# config จริง (เก็บไว้เฉพาะ *.example.*)
+config/*.psd1
+!config/*.example.psd1
+local.settings.json
+.env
+.env.*
+!.env.example
+
+# ข้อมูล export / snapshot จาก Azure
+*.csv
+*.xlsx
+*.xls
+state.json
+snapshots/
+data/
+exports/
+
+# key / certificate
+*.pem
+*.pfx
+*.p12
+*.key
+*.cer
+*.crt
+
+# build / local
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+build/
+*.zip
+.python_packages/
+.vscode/*
+!.vscode/extensions.json
+tmp
+
+# backup จาก teardown.ps1 -BackupTo (มี state และชื่อ resource จริง)
+backup/

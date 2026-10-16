@@ -1,0 +1,19 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "TG_ASSIGNMENT_NAME": "rg-tag-governance-audit",
+    "TG_SUBSCRIPTION_IDS": "",
+    "TG_SLA_DAYS": "14",
+    "TG_MAIL_TO": "pond@example.com",
+    "TG_MAIL_CC": "cloudsec.manager@example.com",
+    "TG_MAIL_CC_ESCALATION": "csi.manager@example.com",
+    "TG_RG_NAME_REGEX": "",
+    "TG_HTTP_ENABLED": "true",
+    "TG_MANUAL_SEND_ENABLED": "false",
+    "TG_MAIL_SENDER": "DoNotReply@<your-domain>.azurecomm.net",
+    "TG_ACS_CONNECTION_STRING": "endpoint=https://...;accesskey=...",
+    "TG_WORKBOOK_URL": ""
+  }
+}
