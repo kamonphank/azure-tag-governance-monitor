@@ -7,7 +7,9 @@
   who    = งานถัดไปของ Cloud team
            "Cloud team แก้ได้" : tag มีค่าแล้วแต่รูปแบบ/ค่าไม่ถูก แก้ได้เลย
            "ถาม owner"         : มี owner แต่ขาด tag อื่น ต้องถามข้อมูลจาก owner
-           "หา owner ก่อน"     : ไม่มี owner ที่ติดต่อได้ ต้องหาเจ้าของ resource ก่อน"""
+           "หา owner ก่อน"     : ไม่มี owner ที่ติดต่อได้ ต้องหาเจ้าของ resource ก่อน
+           "รอ Policy ตรวจซ้ำ" : tag ถูกแก้หลังเวลาที่ Policy ตรวจล่าสุด รอผลยืนยัน ไม่ต้องทำอะไร
+                                 (ไม่นับรวมในตัวเลข ไม่ escalate ไม่อยู่ในรายชื่อ owner)"""
 from __future__ import annotations
 
 import re
@@ -15,6 +17,7 @@ import re
 WHO_FIX = "Cloud team แก้ได้"
 WHO_ASK = "ถาม owner"
 WHO_FIND = "หา owner ก่อน"
+WHO_PENDING = "รอ Policy ตรวจซ้ำ"
 
 _BASE = """policyresources
 | where type == "microsoft.policyinsights/policystates"
@@ -46,7 +49,10 @@ def _check_assignment(assignment: str) -> str:
     return assignment
 
 
-def _query(assignment: str, resource_type: str, lookup: str, kind: str) -> str:
+_COLS = "resource_id, azure_id, resource_kind, resource_name, rg_name, cause, detail, owner_value, who, evaluated_at"
+
+
+def _body(assignment: str, resource_type: str, lookup: str, kind: str) -> str:
     return (
         _BASE.format(assignment=_check_assignment(assignment).lower())
         + f"""| where tostring(properties.resourceType) =~ "{resource_type}"
@@ -55,33 +61,48 @@ def _query(assignment: str, resource_type: str, lookup: str, kind: str) -> str:
 | join kind=leftouter ({lookup}) on resource_id
 """
         + _DETAIL.format(find=WHO_FIND, ask=WHO_ASK, fix=WHO_FIX)
-        + f"""| project resource_id, azure_id, resource_kind = "{kind}", resource_name, rg_name, cause, detail, owner_value, who, evaluated_at
+        + f"""| extend resource_kind = "{kind}"
+| project {_COLS}
 """
     )
 
 
+def _pending(changes: str) -> str:
+    """ค่า tag อ่านสด แต่ผ่าน/ไม่ผ่านมาจากรอบที่ Policy ตรวจล่าสุด ถ้า tag ถูกแก้หลังรอบนั้น (ดูจากประวัติการเปลี่ยนแปลง
+    ใน Resource Graph ซึ่งเก็บราว 14 วัน) ถือว่ารอ Policy ตรวจซ้ำ ไม่ใช่งานที่ต้องทำ กันการแจ้งซ้ำทั้งที่แก้แล้ว"""
+    return f"""| join kind=leftouter ({changes}
+    | where tostring(properties.changes) contains "tags"
+    | summarize tags_changed_at = max(todatetime(properties.changeAttributes.timestamp)) by resource_id = tolower(tostring(properties.targetResourceId))) on resource_id
+| extend who = iff(isnotnull(tags_changed_at) and tags_changed_at > evaluated_at, "{WHO_PENDING}", who)
+| project {_COLS}
+"""
+
+
 def rg_query(assignment: str) -> str:
-    return _query(
+    return _body(
         assignment,
         "microsoft.resources/subscriptions/resourcegroups",
         'resourcecontainers | where type =~ "microsoft.resources/subscriptions/resourcegroups" | project resource_id = tolower(id), azure_id = id, resource_name = name, rg_name = name, tags',
         "Resource Group",
-    )
+    ) + _pending("resourcecontainerchanges")
 
 
 def vm_query(assignment: str) -> str:
     # คอลัมน์ resourceGroup เป็นตัวพิมพ์เล็กเสมอ จึงอ่านชื่อ RG จาก id แทน ให้ตรงกับที่แสดงใน portal
-    return _query(
+    return _body(
         assignment,
         "microsoft.compute/virtualmachines",
         'resources | where type =~ "microsoft.compute/virtualmachines" | project resource_id = tolower(id), azure_id = id, resource_name = name, rg_name = tostring(split(id, "/")[4]), tags',
         "Virtual Machine",
-    )
+    ) + _pending("resourcechanges")
 
 
 def all_query(assignment: str) -> str:
-    """RG และ VM รวมในผลลัพธ์เดียว (ใช้ใน Workbook)"""
-    return rg_query(assignment) + "| union (\n" + vm_query(assignment) + ")\n"
+    """RG และ VM รวมในผลลัพธ์เดียว (ใช้ใน Workbook) ตรวจรอ Policy ครั้งเดียวหลัง union
+    เพราะ Resource Graph จำกัด join ไม่เกิน 3 ครั้งต่อ query"""
+    rg = rg_query(assignment).split("| join kind=leftouter (resourcecontainerchanges")[0]
+    vm = vm_query(assignment).split("| join kind=leftouter (resourcechanges")[0]
+    return rg + "| union (\n" + vm + ")\n" + _pending("resourcechanges | union resourcecontainerchanges")
 
 
 def fetch_items(credential, assignment: str, subscription_ids: list[str] | None = None) -> list[dict]:

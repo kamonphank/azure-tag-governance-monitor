@@ -14,6 +14,8 @@ import copy
 import html
 from datetime import date, datetime, timedelta, timezone
 
+from .queries import WHO_PENDING
+
 SLA_DAYS_DEFAULT = 14
 
 
@@ -205,11 +207,13 @@ def _text_rows(rows: list[dict], new_ids: set[str]) -> str:
     return "\n".join(out)
 
 
-def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla_days: int, workbook_url: str = "") -> dict:
+def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla_days: int, workbook_url: str = "", pending=()) -> dict:
+    """items_aged = รายการที่ต้องทำ (ไม่รวม pending = แก้ tag แล้ว รอ Policy ตรวจซ้ำ ซึ่งแสดงแยกท้ายเมล)"""
+    new_ids = {i["resource_id"] for i in appeared}
+    appeared = [i for i in items_aged if i["resource_id"] in new_ids]
     n_rg = sum(1 for i in items_aged if i["kind"] == "Resource Group")
     n_vm = len(items_aged) - n_rg
     n_over = sum(1 for i in items_aged if i["age_days"] >= sla_days)
-    new_ids = {i["resource_id"] for i in appeared}
     tag = "[ESCALATION] " if stage2 else ""
     subject = f"{tag}[Tag Governance] ค้าง {len(items_aged)} รายการ (RG {n_rg} / VM {n_vm}) · ใหม่ {len(appeared)} · แก้แล้ว {len(resolved)} · {today.isoformat()}"
 
@@ -269,6 +273,15 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
         parts.append(_section(title, desc, _table(rows, sla_days, new_ids)))
         txt.append(f"{who} ({len(rows)})" + (f" — {desc}" if desc else "") + "\n" + _text_rows(rows, new_ids))
 
+    if pending:
+        names = ", ".join(f"{_e(r['name'])} <span style='color:{_MUTED}'>({'RG' if r['kind'] == 'Resource Group' else 'VM'})</span>" for r in pending)
+        parts.append(
+            f'<div style="margin:28px 0 0;padding:12px 16px;background:{_SOFT};border-left:4px solid #9ca3af;font-size:14px;color:{_INK}">'
+            f'<b>แก้ tag แล้ว รอ Policy ตรวจซ้ำ ({len(pending)})</b><br>{names}'
+            f'<div style="font-size:12px;color:{_MUTED};margin-top:4px">ไม่ต้องทำอะไร ไม่นับรวมในตัวเลขด้านบน · ถ้า Policy ยืนยันว่าผ่าน จะย้ายไป "แก้แล้ว" ในรอบหน้า</div></div>'
+        )
+        txt.append(f"แก้ tag แล้ว รอ Policy ตรวจซ้ำ ({len(pending)}) — ไม่ต้องทำอะไร\n" + "\n".join(f"  - {r['name']} ({r['kind']})" for r in pending))
+
     if resolved:
         names = ", ".join(f"{_e(r['name'])} <span style='color:{_MUTED}'>({'RG' if r['kind'] == 'Resource Group' else 'VM'})</span>" for r in resolved)
         parts.append(
@@ -282,10 +295,10 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
     parts.append(
         f'<div style="margin-top:32px;padding-top:14px;border-top:1px solid {_LINE};font-size:12px;color:{_MUTED};line-height:1.6">'
         f"{legend}"
-        "<div style='margin-top:8px'>ตรวจ = เวลาที่ Azure Policy ประเมินล่าสุด ถ้าแก้ tag หลังเวลานี้แล้วยังอยู่ในรายการ แปลว่ารอ Policy ประเมินใหม่ (ปกติภายใน 24 ชม.) "
-        "หรือสั่งตรวจทันทีด้วย <code>az policy state trigger-scan --resource-group &lt;ชื่อ RG&gt;</code></div>"
+        "<div style='margin-top:8px'>ตรวจ = เวลาที่ Azure Policy ประเมินล่าสุด · รายการที่แก้ tag หลังเวลานั้นจะถูกแยกไปที่ \"รอ Policy ตรวจซ้ำ\" เอง "
+        "ถ้าค้างนาน สั่งตรวจทันทีด้วย <code>az policy state trigger-scan --resource-group &lt;ชื่อ RG&gt;</code></div>"
         f"<div style='margin-top:8px'>อายุ = จำนวนวันนับจากวันที่ระบบพบรายการครั้งแรก · ค้างเกิน {sla_days} วันจะถูกแจ้ง และถ้ายังค้างในรอบถัดไปจะ Cc ผู้จัดการ</div>"
-        "<div style='margin-top:8px'>ส่งอัตโนมัติจาก Azure Function ทุกวันทำงานแรกของสัปดาห์ (ไม่ส่งเมื่อทุกรายการผ่านแล้ว) · ผลจาก Azure Policy อาจช้าราว 1 วันหลังแก้ tag</div>"
+        "<div style='margin-top:8px'>ส่งอัตโนมัติจาก Azure Function ทุกวันทำงานแรกของสัปดาห์ (ไม่ส่งเมื่อทุกรายการผ่านแล้ว)</div>"
         "</div>"
     )
 
@@ -305,15 +318,18 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
 
 
 def run_report(items: list[dict], state: dict, today: date, sla_days: int = SLA_DAYS_DEFAULT, workbook_url: str = ""):
-    """ฟังก์ชันเดียวที่รวมขั้นตอนทั้งหมด คืน (email|None, state_ใหม่, สรุปตัวเลข)"""
+    """ฟังก์ชันเดียวที่รวมขั้นตอนทั้งหมด คืน (email|None, state_ใหม่, สรุปตัวเลข)
+    รายการที่รอ Policy ตรวจซ้ำยังถูกเก็บใน state (อายุนับต่อ) แต่ไม่นับรวม ไม่ escalate และไม่ทำให้ต้องส่งเมล"""
     state1, appeared, resolved = update_state(items, state, today)
     aged = with_age(items, state1, today)
-    stage1, stage2, state2 = classify(aged, state1, today, sla_days)
+    pending = [i for i in aged if i.get("who") == WHO_PENDING]
+    active = [i for i in aged if i.get("who") != WHO_PENDING]
+    stage1, stage2, state2 = classify(active, state1, today, sla_days)
     summary = {
-        "total": len(aged), "new": len(appeared), "resolved": len(resolved),
-        "stage1": len(stage1), "stage2": len(stage2),
+        "total": len(active), "new": sum(1 for i in appeared if i.get("who") != WHO_PENDING), "resolved": len(resolved),
+        "stage1": len(stage1), "stage2": len(stage2), "pending": len(pending),
     }
-    if not should_send(aged):
+    if not should_send(active):
         return None, state2, summary
-    email = build_email(aged, appeared, resolved, stage1, stage2, today, sla_days, workbook_url)
+    email = build_email(active, appeared, resolved, stage1, stage2, today, sla_days, workbook_url, pending)
     return email, state2, summary

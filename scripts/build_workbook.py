@@ -13,14 +13,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "function"))
 
-from tag_governance.queries import WHO_ASK, WHO_FIND, WHO_FIX, all_query  # noqa: E402
+from tag_governance.queries import WHO_ASK, WHO_FIND, WHO_FIX, WHO_PENDING, all_query  # noqa: E402
 
 ASSIGNMENT = "rg-tag-governance-audit"
 OUT = ROOT / "workbook" / "tag-governance.workbook.json"
 
 # สีเดียวกับป้ายในอีเมล (core.py)
 WHO_COLORS = [(WHO_FIX, "green"), (WHO_ASK, "orange"), (WHO_FIND, "redBright")]
-WHO_ORDER = f'case(who == "{WHO_FIX}", 1, who == "{WHO_ASK}", 2, 3)'
+WHO_ORDER = f'case(who == "{WHO_FIX}", 1, who == "{WHO_ASK}", 2, who == "{WHO_FIND}", 3, 4)'
 KIND_RG = 'resource_kind == "Resource Group"'
 KIND_VM = 'resource_kind == "Virtual Machine"'
 
@@ -61,15 +61,13 @@ def build() -> dict:
     base = all_query(ASSIGNMENT)
 
     tiles = [
-        ("ไม่ผ่านทั้งหมด", ""),
+        ("ไม่ผ่านทั้งหมด", f'who != "{WHO_PENDING}"'),  # รายการที่รอ Policy ตรวจซ้ำไม่นับรวม
         (WHO_FIX, f'who == "{WHO_FIX}"'),
         (WHO_ASK, f'who == "{WHO_ASK}"'),
         (WHO_FIND, f'who == "{WHO_FIND}"'),
     ]
 
     def _counts(i: int, c: str) -> str:
-        if not c:  # Resource Graph ไม่รับ countif(true) จึงใช้ count() กับช่องรวม
-            return f"n{i} = count(), rg{i} = countif({KIND_RG}), vm{i} = countif({KIND_VM})"
         return f"n{i} = countif({c}), rg{i} = countif({c} and {KIND_RG}), vm{i} = countif({c} and {KIND_VM})"
 
     counts = ", ".join(_counts(i, c) for i, (_, c) in enumerate(tiles))
@@ -92,6 +90,7 @@ def build() -> dict:
 
     owners_q = (
         base
+        + f'| where who != "{WHO_PENDING}"\n'
         + '| extend entry = strcat(iff(' + KIND_RG + ', "RG ", "VM "), resource_name, " (", detail, ")")\n'
         + '| mv-expand owner = split(owner_value, ",")\n'
         + '| extend owner = trim(@"\\s+", tostring(owner))\n'
@@ -125,7 +124,7 @@ def build() -> dict:
                 "text - title",
                 "# Tag Governance\n"
                 f"Resource Group และ VM ที่ยังไม่ผ่าน policy `{ASSIGNMENT}` · ดึงสดจาก Azure Policy ทุกครั้งที่เปิด · "
-                "ผลอัปเดตช้าราว 1 วันหลังแก้ tag",
+                f"รายการที่เพิ่งแก้ tag จะขึ้นว่า **{WHO_PENDING}** จนกว่า Policy จะตรวจใหม่",
             ),
             {
                 "type": 9,
@@ -176,9 +175,9 @@ def build() -> dict:
                 "text - legend",
                 f"**{WHO_FIX}** — tag มีค่าแล้วแต่รูปแบบหรือค่าไม่ถูก แก้ได้เลย  \n"
                 f"**{WHO_ASK}** — มี owner แต่ขาด tag อื่น ติดต่อ owner เพื่อขอข้อมูล  \n"
-                f"**{WHO_FIND}** — ไม่มี owner ที่ติดต่อได้ ต้องหาเจ้าของ resource ก่อน\n\n"
-                "แก้ tag แล้วแต่ยังอยู่ในรายการ: ดูคอลัมน์ **Policy ตรวจล่าสุด** ถ้าเป็นเวลาก่อนที่แก้ แปลว่ารอ Policy ประเมินใหม่ (ปกติภายใน 24 ชม.) "
-                "หรือสั่งตรวจทันทีด้วย `az policy state trigger-scan --resource-group <ชื่อ RG>` (ใช้เวลาหลายนาที)",
+                f"**{WHO_FIND}** — ไม่มี owner ที่ติดต่อได้ ต้องหาเจ้าของ resource ก่อน  \n"
+                f"**{WHO_PENDING}** — แก้ tag แล้วหลังจาก Policy ตรวจรอบล่าสุด รอผลยืนยัน (ปกติภายใน 30 นาที) ไม่ต้องทำอะไร "
+                "และไม่นับรวมในตัวเลขด้านบน · ถ้าค้างนาน สั่งตรวจทันทีด้วย `az policy state trigger-scan --resource-group <ชื่อ RG>`",
             ),
             _text("text - items", "## รายการที่ไม่ผ่าน"),
             {
@@ -186,7 +185,7 @@ def build() -> dict:
                 "content": {
                     "version": "KqlParameterItem/1.0",
                     "parameters": [
-                        static_param("Action", "ต้องทำ", [WHO_FIX, WHO_ASK, WHO_FIND]),
+                        static_param("Action", "ต้องทำ", [WHO_FIX, WHO_ASK, WHO_FIND, WHO_PENDING]),
                         static_param("Kind", "ประเภท", ["Resource Group", "Virtual Machine"]),
                     ],
                     "style": "pills",

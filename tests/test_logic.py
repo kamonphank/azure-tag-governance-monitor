@@ -280,3 +280,30 @@ def test_email_shows_policy_evaluation_time_in_thai_time():
     items = [{**item("a", name="RG-A"), "evaluated_at": "2026-10-16T07:12:30.5Z"}]
     email, _, _ = core.run_report(items, core.empty_state(), date(2026, 10, 19))
     assert "ตรวจ 16/10 14:12" in email["html"] and "ตรวจ 16/10 14:12" in email["text"]
+
+
+def test_pending_items_not_counted_not_escalated_but_age_kept():
+    pend = {**item("p", name="RG-P"), "who": queries.WHO_PENDING}
+    state = core.empty_state()
+    for d in [date(2026, 10, 19), date(2026, 11, 2)]:
+        _, state, _ = core.run_report([item("a", name="RG-A"), pend], state, d)
+    email, state, s = core.run_report([item("a", name="RG-A"), pend], state, date(2026, 11, 9))
+    assert s["total"] == 1 and s["pending"] == 1 and s["stage2"] == 1
+    assert state["items"]["p"]["escalated_at"] is None and state["items"]["p"]["first_seen"] == "2026-10-19"
+    assert "ค้าง 1 รายการ" in email["subject"] and "รอ Policy ตรวจซ้ำ (1)" in email["html"]
+
+
+def test_no_email_when_only_pending_items_left():
+    pend = {**item("p"), "who": queries.WHO_PENDING}
+    email, _, s = core.run_report([pend], core.empty_state(), date(2026, 10, 19))
+    assert email is None and s["pending"] == 1
+
+
+def test_workbook_query_stays_within_resource_graph_limits():
+    # Resource Graph รับ join และ mv-expand ได้ไม่เกิน 3 ครั้งต่อ query
+    import json
+
+    wb = json.loads((Path(__file__).resolve().parent.parent / "workbook" / "tag-governance.workbook.json").read_text(encoding="utf-8"))
+    for it in wb["items"]:
+        q = it.get("content", {}).get("query", "")
+        assert q.count("| join") <= 3 and q.count("mv-expand") <= 3, it["name"]

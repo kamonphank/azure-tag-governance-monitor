@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "function"))
 
 from tag_governance import core  # noqa: E402
-from tag_governance.queries import WHO_ASK, WHO_FIND, WHO_FIX  # noqa: E402
+from tag_governance.queries import WHO_ASK, WHO_FIND, WHO_FIX, WHO_PENDING  # noqa: E402
 
 TODAY = date(2026, 10, 19)
 
@@ -31,6 +31,7 @@ ITEMS = [
     _it("vm-owner", VM, "P901RGSI04", "tag อื่นไม่ครบ", "ไม่มี project", "alice@kubota.com", WHO_ASK),
     _it("T901RGSI05", RG, "T901RGSI05", "ไม่มี owner tag", "ไม่มี owner, ไม่มี department", "", WHO_FIND),
     _it("P730RGSI01", RG, "P730RGSI01", "ไม่มี tag เลย", "ไม่มี tag เลย", "", WHO_FIND),
+    _it("P750RGSI01", RG, "P750RGSI01", "tag อื่นไม่ครบ", "department ค่าไม่ถูก: Cyber Security", "kamonphan.kan@kubota.com", WHO_PENDING),
     _it("vm-missing-tags", VM, "D901RGSI02", "ไม่มี owner tag", "ไม่มี owner", "", WHO_FIND),
 ]
 
