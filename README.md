@@ -6,7 +6,7 @@
 
 repository นี้พัฒนาต่อจาก [`azure-policy-rg-vm-tag-governance`](https://github.com/kamonphank/azure-policy-rg-vm-tag-governance) ซึ่งสร้าง Policy initiative สำหรับตรวจสอบ tag ด้วย effect `Audit` โดย repository นี้ไม่ได้สร้าง Policy ใหม่ แต่นำผลการประเมินของ Policy assignment ดังกล่าวมาจัดทำรายงานและการแจ้งเตือน จึงต้อง deploy repository นั้นก่อน
 
-ขั้นตอนการ deploy และคำอธิบายการตั้งค่าทั้งหมดอยู่ใน **[docs/DEPLOY.md](docs/DEPLOY.md)**
+ขั้นตอนการ deploy และคำอธิบายการตั้งค่าทั้งหมดอยู่ใน **[docs/DEPLOY.md](docs/DEPLOY.md)** ส่วนงานดูแลหลัง deploy (เปลี่ยนผู้รับ, ตรวจว่าระบบทำงาน, อัปเดต, ถอยกลับ, กู้ state, ย้าย, ลบ) อยู่ใน **[docs/OPERATIONS.md](docs/OPERATIONS.md)**
 
 **Contents**
 
@@ -134,3 +134,4 @@ flowchart LR
 | `config/deploy.config.example.psd1` | ไฟล์ config ตัวอย่าง (ไฟล์จริงถูกกำหนดใน `.gitignore`) |
 | `tests/` | test suite (pytest) ครอบคลุมตรรกะวันส่ง age และการ escalate โดยไม่ต้องใช้ Azure |
 | `docs/DEPLOY.md` | คู่มือการ deploy และการตั้งค่า |
+| `docs/OPERATIONS.md` | คู่มือดูแลระบบหลัง deploy แบบ "อยากทำอะไร ทำแบบนี้" |
