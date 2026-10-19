@@ -1,6 +1,9 @@
 # Deployment Guide
 
-คู่มือ deploy ระบบขึ้นระบบจริงของบริษัท ภาพรวมของระบบอยู่ใน [README](../README.md) ส่วนการทดสอบแบบลบแล้วสร้างใหม่ในห้องแล็บอยู่ใน [QUICKSTART](QUICKSTART.md)
+คู่มือ deploy ระบบขึ้นระบบจริงของบริษัท ภาพรวมของระบบอยู่ใน [README](../README.md) ส่วนการทดสอบแบบลบแล้วสร้างใหม่ในห้องแล็บอยู่ใน [QUICKSTART](QUICKSTART.md) และงานดูแลหลัง deploy อยู่ใน [OPERATIONS](OPERATIONS.md)
+
+> [!WARNING]
+> ห้าม deploy ระบบนี้ 2 ชุด (เช่น แล็บกับของจริง) ลง Resource Group เดียวกัน `teardown.ps1` ของชุดหนึ่งจะลบอีกชุดไปด้วย ดู [OPERATIONS](OPERATIONS.md)
 
 **Contents**
 
@@ -233,7 +236,7 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 
 ## 4. Update and removal
 
-**Update** แก้โค้ดหรือ `holidays.json` แล้วรัน `-Part Code` แก้ config แล้วรัน `-Part Infra`
+**Update** แก้โค้ดหรือ `holidays.json` แล้วรัน `-Part Code` แก้ config แล้วรัน `-Part Infra` ขั้นตอนอัปเดต production อย่างปลอดภัยและการถอยกลับอยู่ใน [OPERATIONS หัวข้อ 4-5](OPERATIONS.md#4-อัปเดต-production-อย่างปลอดภัย)
 
 **Removal และเริ่มใหม่** ใช้ `scripts/teardown.ps1` ซึ่งอ่าน config เดียวกับ `deploy.ps1` และลบเฉพาะ resource ที่ deployment ของโปรเจกต์นี้สร้าง (ไม่แตะ resource อื่นใน Resource Group) พร้อมเพิกถอนสิทธิ์ Reader และ purge Key Vault / Log Analytics ที่ค้างใน soft-delete ซึ่งหากไม่ purge การ deploy ใหม่ด้วยชื่อเดิมจะชน
 
