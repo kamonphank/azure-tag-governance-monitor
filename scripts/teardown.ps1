@@ -140,6 +140,12 @@ if ($DeleteResourceGroup) {
     if ($LASTEXITCODE -ne 0) { $failed += $id }
   }
   if ($failed.Count) { Warn "ลบไม่สำเร็จ $($failed.Count) รายการ (อาจเพราะลำดับ ลองรันใหม่อีกครั้ง):"; $failed | ForEach-Object { Info "  - $_" } }
+  else {
+    # ลบประวัติ deployment ของชุดนี้ด้วย (ลบแค่ประวัติ) ไม่งั้น deploy.ps1 จะเห็นว่ายังมีชุดนี้อยู่ใน RG
+    # เก็บไว้เมื่อลบไม่ครบ เพื่อให้รัน teardown ซ้ำแล้วยังหา resource ที่เหลือเจอ
+    Info 'ลบประวัติ deployment ของชุดนี้'
+    foreach ($d in $deps) { & az deployment group delete --resource-group $rg --name $d 2>$null }
+  }
 }
 
 # ---------- purge ของที่ค้างใน soft-delete ----------
