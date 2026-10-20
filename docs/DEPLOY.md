@@ -45,7 +45,6 @@
 ```powershell
 git clone https://github.com/kamonphank/azure-tag-governance-monitor.git
 cd azure-tag-governance-monitor
-git checkout feature/azure-tag-governance-init   # เปลี่ยนเป็น main เมื่อ merge เข้า main แล้ว
 ```
 
 ### Step 3: Login และเลือก subscription
