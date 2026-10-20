@@ -1,6 +1,9 @@
 # Deployment Guide
 
-คู่มือ deploy ระบบขึ้นระบบจริงของบริษัท ภาพรวมของระบบอยู่ใน [README](../README.md) ส่วนการทดสอบแบบลบแล้วสร้างใหม่ในห้องแล็บอยู่ใน [QUICKSTART](QUICKSTART.md)
+คู่มือ deploy ระบบขึ้นระบบจริงของบริษัท ภาพรวมของระบบอยู่ใน [README](../README.md) ส่วนการทดสอบแบบลบแล้วสร้างใหม่ในห้องแล็บอยู่ใน [QUICKSTART](QUICKSTART.md) และงานดูแลหลัง deploy อยู่ใน [OPERATIONS](OPERATIONS.md)
+
+> [!WARNING]
+> ห้าม deploy ระบบนี้ 2 ชุด (เช่น แล็บกับของจริง) ลง Resource Group เดียวกัน `teardown.ps1` ของชุดหนึ่งจะลบอีกชุดไปด้วย ดู [OPERATIONS](OPERATIONS.md)
 
 **Contents**
 
@@ -42,7 +45,6 @@
 ```powershell
 git clone https://github.com/kamonphank/azure-tag-governance-monitor.git
 cd azure-tag-governance-monitor
-git checkout feature/azure-tag-governance-init   # เปลี่ยนเป็น main เมื่อ merge เข้า main แล้ว
 ```
 
 ### Step 3: Login และเลือก subscription
@@ -117,8 +119,8 @@ $rg = '<resource-group>'; $fn = '<function-app>'   # ชื่อ Function App �
 ./scripts/deploy.ps1 -ConfigPath $cfg -Part Infra -Set @{ EnableTestEndpoint = $true }   # เปิด /api/run ชั่วคราว
 $key = az functionapp function keys list -g $rg -n $fn --function-name run_now --query default -o tsv
 
-Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&force=1" | ConvertTo-Json -Depth 6   # ดูผลก่อน ไม่บันทึกอะไร
-Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=0&force=1" | ConvertTo-Json -Depth 6   # บันทึก snapshot แรก เรียกครั้งเดียว
+Invoke-RestMethod -Headers @{ "x-functions-key" = $key } "https://$fn.azurewebsites.net/api/run?dry_run=1&force=1" | ConvertTo-Json -Depth 6   # ดูผลก่อน ไม่บันทึกอะไร
+Invoke-RestMethod -Headers @{ "x-functions-key" = $key } "https://$fn.azurewebsites.net/api/run?dry_run=0&force=1" | ConvertTo-Json -Depth 6   # บันทึก snapshot แรก เรียกครั้งเดียว
 
 ./scripts/deploy.ps1 -ConfigPath $cfg -Part Infra   # ปิด /api/run กลับตามค่าใน config
 ```
@@ -176,6 +178,9 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 - **สิทธิ์ Reader** สคริปต์มอบให้เฉพาะ subscription ใน `SubscriptionId` หากต้องการ scan subscription อื่น administrator ต้องมอบสิทธิ์ให้เอง
 - **`EnableTestEndpoint`** ปิดไว้เป็นค่าเริ่มต้น เพราะ `dry_run=0` ส่งอีเมลและบันทึก state ได้จริง เปิดเฉพาะตอนทดสอบ
 - **`EnableManualSend`** ใช้ส่งอีเมลนอกรอบ (นอกเหนือจากรอบอัตโนมัติวันทำงานแรกของสัปดาห์) โดยไม่บันทึก state และ snapshot รอบ escalation ของรายงานประจำสัปดาห์จึงไม่เปลี่ยน ดูหัวข้อ 3
+- **ข้อมูลใน Blob** เปิด soft delete 14 วันไว้ ถ้า `state.json` ถูกลบหรือเขียนทับผิด กู้คืนได้ที่ Portal > Storage account > Containers > `tag-governance` > Show deleted blobs ส่วน `snapshots/` ถูกลบอัตโนมัติเมื่อเก่ากว่า 365 วัน (เปลี่ยนได้ที่ parameter `snapshotRetentionDays` ใน `infra/main.bicep`)
+- **Log** Log Analytics ตั้งเพดานไว้ 0.1 GB ต่อวัน (ใช้งานปกติไม่กี่ MB) เกินแล้วจะหยุดเก็บ log จนถึงวันถัดไป
+- **ค่าใช้จ่าย** ทั้งระบบปกติไม่เกินราว $1-2 ต่อเดือน แต่ถ้า subscription เปิด Microsoft Defender for Storage ไว้ storage account ของระบบนี้จะถูกคิดเพิ่มตามแผนของ Defender ซึ่งอาจแพงกว่าทั้งระบบ ตรวจที่ Defender for Cloud > Environment settings ก่อน deploy
 
 **ตัวเลือกของ `deploy.ps1`**
 
@@ -196,10 +201,10 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 ```powershell
 $rg = '<resource-group>'; $fn = '<function-app>'
 $key = az functionapp function keys list -g $rg -n $fn --function-name run_now --query default -o tsv
-Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&force=1" | ConvertTo-Json -Depth 6
+Invoke-RestMethod -Headers @{ "x-functions-key" = $key } "https://$fn.azurewebsites.net/api/run?dry_run=1&force=1" | ConvertTo-Json -Depth 6
 ```
 
-**Function key** endpoint `/api/run` และ `/api/send` กำหนดให้ผู้เรียกต้องแนบ key ใน `?code=` ทุกครั้ง (auth level `FUNCTION`) ถ้าไม่มีหรือผิดจะได้ `401` ซึ่งป้องกันไม่ให้คนที่รู้แค่ URL สั่งส่งอีเมลหรือแก้ state ได้ Azure สร้าง key ชื่อ `default` ให้แต่ละ function อัตโนมัติ คำสั่ง `az functionapp function keys list` ใช้สิทธิ์ Azure ของผู้ที่ login อยู่ไปอ่าน key นั้นมา จึงต้องดึงแยกตามชื่อ function (`run_now` หรือ `send_now`) ถือว่า key เป็นความลับ ห้ามแปะลงเอกสารหรือแชต หากรั่วให้สร้างใหม่ที่ Portal > Function App > เลือก function > Function Keys > Renew
+**Function key** endpoint `/api/run` และ `/api/send` กำหนดให้ผู้เรียกต้องแนบ key ทุกครั้ง (auth level `FUNCTION`) ตัวอย่างในเอกสารนี้ส่ง key ใน header `x-functions-key` แทน `?code=` ใน URL เพราะ URL ไปค้างอยู่ใน history ของ shell และ log ได้ง่ายกว่า ถ้าไม่มีหรือผิดจะได้ `401` ซึ่งป้องกันไม่ให้คนที่รู้แค่ URL สั่งส่งอีเมลหรือแก้ state ได้ Azure สร้าง key ชื่อ `default` ให้แต่ละ function อัตโนมัติ คำสั่ง `az functionapp function keys list` ใช้สิทธิ์ Azure ของผู้ที่ login อยู่ไปอ่าน key นั้นมา จึงต้องดึงแยกตามชื่อ function (`run_now` หรือ `send_now`) ถือว่า key เป็นความลับ ห้ามแปะลงเอกสารหรือแชต หากรั่วให้สร้างใหม่ที่ Portal > Function App > เลือก function > Function Keys > Renew
 
 ตัวอย่างในเอกสารนี้ใช้ `Invoke-RestMethod` ซึ่งเป็นคำสั่งของ PowerShell เอง ใช้ได้ทั้ง Windows PowerShell 5.1 และ PowerShell 7 และต่อ `| ConvertTo-Json -Depth 6` เพื่อให้เห็นผลเป็น JSON ครบทุกระดับ (ถ้าไม่ต่อ ค่าที่เป็น list จะแสดงเป็น `System.Object[]`) ไม่ควรใช้ `curl` ใน Windows PowerShell 5.1 เพราะเป็น alias ของ `Invoke-WebRequest` ซึ่งไม่รู้จัก option ของ curl เช่น `-X POST` หากต้องการ curl จริงให้พิมพ์ `curl.exe`
 
@@ -214,14 +219,14 @@ Invoke-RestMethod "https://$fn.azurewebsites.net/api/run?code=$key&dry_run=1&for
 3. **ส่งอีเมลจริงหนึ่งครั้ง** (ถ้าต้องการ) หลังตั้ง `MailEnabled = $true` ให้เรียก `dry_run=0&force=1` แล้วตรวจว่าอีเมลถึงผู้รับ และมี `state.json` กับ `snapshots/<date>.json` ใน Blob container `tag-governance`
 4. **ปิด endpoint ทดสอบกลับ** ตั้ง `EnableTestEndpoint = $false` แล้วรัน `-Part Infra`
 
-ห้ามใช้ `dry_run=0` ร่วมกับ `today` ที่เป็นวันในอนาคต เพราะจะบันทึก state ที่ไม่ตรงกับความเป็นจริง
+ใช้ `today` ได้เฉพาะกับ `dry_run=1` ถ้าใส่ร่วมกับ `dry_run=0` ระบบจะตอบ `400` และไม่ทำอะไร เพราะจะบันทึก state ที่ไม่ตรงกับความเป็นจริง
 
 **ส่งอีเมลทันทีตอนไหนก็ได้** ตั้ง `EnableManualSend = $true` แล้วรัน `-Part Infra` จากนั้นเรียก
 
 ```powershell
 $rg = '<resource-group>'; $fn = '<function-app>'
 $key = az functionapp function keys list -g $rg -n $fn --function-name send_now --query default -o tsv
-Invoke-RestMethod -Method Post "https://$fn.azurewebsites.net/api/send?code=$key" | ConvertTo-Json -Depth 6
+Invoke-RestMethod -Method Post -Headers @{ "x-functions-key" = $key } "https://$fn.azurewebsites.net/api/send" | ConvertTo-Json -Depth 6
 ```
 
 key ของแต่ละ function แยกกัน ต้องดึง key ของ `send_now` ไม่ใช่ของ `run_now` เรียกแต่ละครั้งส่งอีเมล 1 ฉบับ (ดูได้จาก `message_id` ในผลลัพธ์)
@@ -230,7 +235,7 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 
 ## 4. Update and removal
 
-**Update** แก้โค้ดหรือ `holidays.json` แล้วรัน `-Part Code` แก้ config แล้วรัน `-Part Infra`
+**Update** แก้โค้ดหรือ `holidays.json` แล้วรัน `-Part Code` แก้ config แล้วรัน `-Part Infra` ขั้นตอนอัปเดต production อย่างปลอดภัยและการถอยกลับอยู่ใน [OPERATIONS หัวข้อ 4-5](OPERATIONS.md#4-อัปเดต-production-อย่างปลอดภัย)
 
 **Removal และเริ่มใหม่** ใช้ `scripts/teardown.ps1` ซึ่งอ่าน config เดียวกับ `deploy.ps1` และลบเฉพาะ resource ที่ deployment ของโปรเจกต์นี้สร้าง (ไม่แตะ resource อื่นใน Resource Group) พร้อมเพิกถอนสิทธิ์ Reader และ purge Key Vault / Log Analytics ที่ค้างใน soft-delete ซึ่งหากไม่ purge การ deploy ใหม่ด้วยชื่อเดิมจะชน
 
@@ -259,6 +264,7 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 | ไม่ได้รับอีเมล | `MailEnabled` ยังเป็น `$false` อีเมลอยู่ใน Junk หรือทุกรายการผ่านแล้ว (ระบบไม่ส่งอีเมลเมื่อไม่มีรายการค้าง) |
 | `/api/run` ตอบ 404 | `EnableTestEndpoint` ยังเป็น `$false` |
 | `/api/send` ตอบ 404 | `EnableManualSend` ยังเป็น `$false` ดูหัวข้อ 3 |
+| `/api/run` ตอบ 400 `today ใช้ได้เฉพาะ dry_run=1` | ใส่ `today` ร่วมกับ `dry_run=0` ซึ่งไม่อนุญาต ตัด `today` ออกหรือใช้ `dry_run=1` |
 
 ## 6. For developers
 

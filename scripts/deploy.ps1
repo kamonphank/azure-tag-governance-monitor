@@ -137,6 +137,18 @@ if ($rgExists) {
   Warn "RG '$rg' มีอยู่แล้วใน subscription นี้ มี $($existing.Count) resource"
   $existing | Select-Object -First 15 | ForEach-Object { Info "  - $($_.n)   [$($_.t)]" }
   if ($existing.Count -gt 15) { Info "  ... และอีก $($existing.Count - 15) รายการ" }
+  # ห้ามมีระบบนี้ 2 ชุด (NamePrefix ต่างกัน) ใน RG เดียว: Workbook ชนกัน และ teardown ของชุดหนึ่งเคยลบอีกชุดไปด้วย
+  $depList = (& az deployment group list --resource-group $rg -o json) | ConvertFrom-Json
+  $others = @($depList | Where-Object { $_.name -like 'tag-governance-*' } |
+    ForEach-Object { if ($_.properties.parameters.namePrefix.value) { "$($_.properties.parameters.namePrefix.value)" } else { 'tagGov' } } |
+    Where-Object { $_ -ne $prefix } | Sort-Object -Unique)
+  if ($others.Count) {
+    Fail ("RG '$rg' มีระบบนี้อีกชุดอยู่แล้ว (NamePrefix: $($others -join ', ')) แต่ config นี้ใช้ NamePrefix '$prefix'`n" +
+      "    ห้าม deploy 2 ชุดลง RG เดียวกัน เลือกอย่างใดอย่างหนึ่ง:`n" +
+      "    - จะอัปเดตชุดเดิม: ตั้ง NamePrefix ใน config ให้ตรงกับชุดเดิม`n" +
+      "    - จะทดสอบแยก: ใช้ RG อื่น`n" +
+      "    - จะแทนที่ชุดเดิม: ลบชุดเดิมก่อนด้วย teardown.ps1 โดยใช้ NamePrefix ของชุดเดิม (docs/OPERATIONS.md หัวข้อ 8)")
+  }
   Warn 'จะ deploy resource ของโปรเจกต์นี้เพิ่ม/อัปเดตลงใน RG นี้ (ไม่ลบ ไม่แก้ resource อื่น และไม่แก้ tag/region ของ RG)'
   if ($tags.Count) { Info "tag ที่จะใส่ให้ resource ของโปรเจกต์: $($tags -join ', ')  (RG ที่มีอยู่แล้วไม่ถูกแก้ tag)" }
 } else {
@@ -303,7 +315,7 @@ try {
 2) ทดสอบ (ต้องเปิด endpoint ทดสอบก่อน):
    az functionapp config appsettings set -g $rg -n $funcName --settings TG_HTTP_ENABLED=true -o none
    `$key = az functionapp function keys list -g $rg -n $funcName --function-name run_now --query default -o tsv
-   Invoke-RestMethod "https://$funcName.azurewebsites.net/api/run?code=`$key&dry_run=1&force=1" | ConvertTo-Json -Depth 6
+   Invoke-RestMethod -Headers @{ "x-functions-key" = `$key } "https://$funcName.azurewebsites.net/api/run?dry_run=1&force=1" | ConvertTo-Json -Depth 6
    ... ทดสอบเสร็จแล้วปิดกลับ:
    az functionapp config appsettings set -g $rg -n $funcName --settings TG_HTTP_ENABLED=false -o none
 
@@ -311,7 +323,7 @@ try {
 4) เมื่อพร้อมส่งเมลจริง: ตั้ง MailEnabled = `$true ใน config แล้วรัน  ./scripts/deploy.ps1 -Part Infra
 5) ส่งเมลทันทีนอกรอบ (ต้องตั้ง EnableManualSend = `$true):
    `$key = az functionapp function keys list -g $rg -n $funcName --function-name send_now --query default -o tsv
-   Invoke-RestMethod -Method Post "https://$funcName.azurewebsites.net/api/send?code=`$key" | ConvertTo-Json -Depth 6
+   Invoke-RestMethod -Method Post -Headers @{ "x-functions-key" = `$key } "https://$funcName.azurewebsites.net/api/send" | ConvertTo-Json -Depth 6
 "@
 }
 finally {

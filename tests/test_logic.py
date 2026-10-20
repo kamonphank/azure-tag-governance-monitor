@@ -331,3 +331,29 @@ def test_change_tables_are_never_joined_with_other_tables():
     for q in queries_:
         if "changes" in q and ("resourcechanges" in q or "resourcecontainerchanges" in q):
             assert q.count("changes\n") == 1 and "policyresources" not in q and "| union" not in q and "| join" not in q
+
+
+def test_http_run_rejects_today_with_real_run(monkeypatch):
+    # จำลองวันพร้อม dry_run=0 จะบันทึก first_seen / escalated_at ด้วยวันที่ปลอมลง state จริง
+    import azure.functions as func
+
+    import function_app
+
+    monkeypatch.setenv("TG_HTTP_ENABLED", "true")
+    called = []
+    monkeypatch.setattr(function_app.runner, "run", lambda **kw: called.append(kw) or {"status": "ok"})
+    req = func.HttpRequest("GET", "/api/run", params={"dry_run": "0", "force": "1", "today": "2026-11-02"}, body=b"")
+    r = function_app.run_now.build().get_user_function()(req)
+    assert r.status_code == 400 and called == []
+
+    req = func.HttpRequest("GET", "/api/run", params={"dry_run": "1", "force": "1", "today": "2026-11-02"}, body=b"")
+    r = function_app.run_now.build().get_user_function()(req)
+    assert r.status_code == 200 and called[0]["today"].isoformat() == "2026-11-02" and called[0]["dry_run"] is True
+
+
+def test_azure_sdk_info_logs_are_silenced():
+    import logging
+
+    import function_app  # noqa: F401
+
+    assert logging.getLogger("azure").getEffectiveLevel() == logging.WARNING
