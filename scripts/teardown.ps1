@@ -58,8 +58,14 @@ if ((& az group exists --name $rg -o tsv) -ne 'true') { Info "ไม่พบ RG
 
 # ---------- หา resource ที่โปรเจกต์นี้สร้าง ----------
 Step "หา resource ที่ deployment ของโปรเจกต์นี้สร้างใน '$rg'"
-$deps = @(& az deployment group list --resource-group $rg --query "[?starts_with(name, 'tag-governance-')].name" -o tsv)   # ต้องมีช่องว่าง: PowerShell 5.1 จึงครอบด้วย " ไม่งั้น cmd.exe (az.cmd) อ่าน ( ) เองแล้ว error
-if ($deps.Count -eq 0) { Fail "ไม่พบ deployment ชื่อ tag-governance-* ใน RG นี้ (ไม่ได้สร้างด้วย deploy.ps1 หรือประวัติถูกลบ) ผมจะไม่เดาว่าอะไรเป็นของโปรเจกต์ ให้ลบเองหรือใช้ -DeleteResourceGroup" }
+# เฉพาะ deployment ที่ NamePrefix ตรงกับ config ถ้า RG มีระบบนี้ชุดอื่นปนอยู่ จะไม่ลบของชุดนั้น
+$depList = (& az deployment group list --resource-group $rg -o json) | ConvertFrom-Json
+$ours = @($depList | Where-Object { $_.name -like 'tag-governance-*' } | ForEach-Object {
+    [pscustomobject]@{ name = $_.name; prefix = $(if ($_.properties.parameters.namePrefix.value) { "$($_.properties.parameters.namePrefix.value)" } else { 'tagGov' }) } })
+$deps = @($ours | Where-Object { $_.prefix -eq $prefix } | ForEach-Object { $_.name })
+$others = @($ours | Where-Object { $_.prefix -ne $prefix } | ForEach-Object { $_.prefix } | Sort-Object -Unique)
+if ($others.Count) { Warn "RG นี้มีระบบนี้ชุดอื่นด้วย (NamePrefix: $($others -join ', ')) ชุดนั้นจะไม่ถูกลบ" }
+if ($deps.Count -eq 0) { Fail "ไม่พบ deployment ชื่อ tag-governance-* ที่ NamePrefix = '$prefix' ใน RG นี้ (ตรวจ NamePrefix ใน config) (ไม่ได้สร้างด้วย deploy.ps1 หรือประวัติถูกลบ) ผมจะไม่เดาว่าอะไรเป็นของโปรเจกต์ ให้ลบเองหรือใช้ -DeleteResourceGroup" }
 $ids = @()
 foreach ($d in $deps) {
   $ids += @(& az deployment group show --resource-group $rg --name $d --query "properties.outputResources[].id" -o tsv)
