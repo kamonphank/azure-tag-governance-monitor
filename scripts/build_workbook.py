@@ -128,6 +128,23 @@ def build() -> dict:
         + '| project owner, email_ok, n, entries = array_strcat(entries, "  ·  ")'
     )
 
+    # Azure Policy compliance ไม่ได้ช่วยหา key ที่ตัวพิมพ์ต่างจากมาตรฐานในบางกรณี
+    # ตรวจ tag ปัจจุบันจาก Resource Graph โดยตรง เพื่อให้พบ resource ที่ Policy มองว่าผ่านด้วย
+    casing_q = '''resourcecontainers
+| where type =~ "microsoft.resources/subscriptions/resourcegroups"
+| project azure_id = id, resource_name = name, rg_name = name, resource_kind = "Resource Group", tags
+| union (resources
+| where type =~ "microsoft.compute/virtualmachines"
+| project azure_id = id, resource_name = name, rg_name = tostring(split(id, "/")[4]), resource_kind = "Virtual Machine", tags)
+| extend tag_bag = todynamic(tags)
+| mv-expand tag_key = bag_keys(tag_bag)
+| extend tag_key = tostring(tag_key), expected_key = tolower(tostring(tag_key))
+| where expected_key in ("owner", "department", "environment", "project") and tag_key != expected_key
+| extend tag_value = tostring(tag_bag[tag_key])
+| extend rg_col = iff(resource_kind == "Resource Group", "", rg_name)
+| order by resource_kind asc, resource_name asc, expected_key asc
+| project azure_id, resource_kind, rg_col, resource_name, tag_key, expected_key, tag_value'''
+
     def static_param(name: str, label: str, values: list[str]) -> dict:
         return {
             "id": f"tg-{name.lower()}",
@@ -262,6 +279,46 @@ def build() -> dict:
                     },
                 ),
                 "name": "query - items",
+            },
+            _text(
+                "text - casing",
+                "## Tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน\n"
+                "ตรวจจาก tag ปัจจุบันโดยตรง รวม resource ที่ Azure Policy อาจรายงานว่าผ่าน "
+                "ให้แก้ key เป็นตัวพิมพ์เล็กตามมาตรฐาน เช่น `Owner` → `owner`",
+            ),
+            {
+                "type": 3,
+                "content": _arg(
+                    casing_q,
+                    size=3,
+                    visualization="table",
+                    showExportToExcel=True,
+                    exportToExcelOptions="visible",
+                    noDataMessage="ไม่พบ tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน",
+                    gridSettings={
+                        "rowLimit": 1000,
+                        "filter": True,
+                        "formatters": [
+                            {"columnMatch": "azure_id", "formatter": 13, "formatOptions": {"linkTarget": "Resource", "showIcon": False, "customColumnWidthSetting": "20ch"}},
+                            _width("resource_kind", "15ch"),
+                            _width("rg_col", "15ch"),
+                            _width("resource_name", "30ch"),
+                            _width("tag_key", "20ch"),
+                            _width("expected_key", "20ch"),
+                            _width("tag_value", "35ch"),
+                        ],
+                        "labelSettings": [
+                            {"columnId": "azure_id", "label": "ชื่อ resource"},
+                            {"columnId": "resource_kind", "label": "ประเภท"},
+                            {"columnId": "rg_col", "label": "อยู่ใน RG"},
+                            {"columnId": "resource_name", "label": "ชื่อ"},
+                            {"columnId": "tag_key", "label": "key ที่พบ"},
+                            {"columnId": "expected_key", "label": "key มาตรฐาน"},
+                            {"columnId": "tag_value", "label": "ค่า tag"},
+                        ],
+                    },
+                ),
+                "name": "query - casing",
             },
             _text(
                 "text - owners",

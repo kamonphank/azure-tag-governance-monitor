@@ -335,6 +335,118 @@
     {
       "type": 1,
       "content": {
+        "json": "## Tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน\nตรวจจาก tag ปัจจุบันโดยตรง รวม resource ที่ Azure Policy อาจรายงานว่าผ่าน ให้แก้ key เป็นตัวพิมพ์เล็กตามมาตรฐาน เช่น `Owner` → `owner`"
+      },
+      "name": "text - casing"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "resourcecontainers\n| where type =~ \"microsoft.resources/subscriptions/resourcegroups\"\n| project azure_id = id, resource_name = name, rg_name = name, resource_kind = \"Resource Group\", tags\n| union (resources\n| where type =~ \"microsoft.compute/virtualmachines\"\n| project azure_id = id, resource_name = name, rg_name = tostring(split(id, \"/\")[4]), resource_kind = \"Virtual Machine\", tags)\n| extend tag_bag = todynamic(tags)\n| mv-expand tag_key = bag_keys(tag_bag)\n| extend tag_key = tostring(tag_key), expected_key = tolower(tostring(tag_key))\n| where expected_key in (\"owner\", \"department\", \"environment\", \"project\") and tag_key != expected_key\n| extend tag_value = tostring(tag_bag[tag_key])\n| extend rg_col = iff(resource_kind == \"Resource Group\", \"\", rg_name)\n| order by resource_kind asc, resource_name asc, expected_key asc\n| project azure_id, resource_kind, rg_col, resource_name, tag_key, expected_key, tag_value",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [
+          "{Subscription}"
+        ],
+        "size": 3,
+        "visualization": "table",
+        "showExportToExcel": true,
+        "exportToExcelOptions": "visible",
+        "noDataMessage": "ไม่พบ tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน",
+        "gridSettings": {
+          "rowLimit": 1000,
+          "filter": true,
+          "formatters": [
+            {
+              "columnMatch": "azure_id",
+              "formatter": 13,
+              "formatOptions": {
+                "linkTarget": "Resource",
+                "showIcon": false,
+                "customColumnWidthSetting": "20ch"
+              }
+            },
+            {
+              "columnMatch": "resource_kind",
+              "formatter": 0,
+              "formatOptions": {
+                "customColumnWidthSetting": "15ch"
+              }
+            },
+            {
+              "columnMatch": "rg_col",
+              "formatter": 0,
+              "formatOptions": {
+                "customColumnWidthSetting": "15ch"
+              }
+            },
+            {
+              "columnMatch": "resource_name",
+              "formatter": 0,
+              "formatOptions": {
+                "customColumnWidthSetting": "30ch"
+              }
+            },
+            {
+              "columnMatch": "tag_key",
+              "formatter": 0,
+              "formatOptions": {
+                "customColumnWidthSetting": "20ch"
+              }
+            },
+            {
+              "columnMatch": "expected_key",
+              "formatter": 0,
+              "formatOptions": {
+                "customColumnWidthSetting": "20ch"
+              }
+            },
+            {
+              "columnMatch": "tag_value",
+              "formatter": 0,
+              "formatOptions": {
+                "customColumnWidthSetting": "35ch"
+              }
+            }
+          ],
+          "labelSettings": [
+            {
+              "columnId": "azure_id",
+              "label": "ชื่อ resource"
+            },
+            {
+              "columnId": "resource_kind",
+              "label": "ประเภท"
+            },
+            {
+              "columnId": "rg_col",
+              "label": "อยู่ใน RG"
+            },
+            {
+              "columnId": "resource_name",
+              "label": "ชื่อ"
+            },
+            {
+              "columnId": "tag_key",
+              "label": "key ที่พบ"
+            },
+            {
+              "columnId": "expected_key",
+              "label": "key มาตรฐาน"
+            },
+            {
+              "columnId": "tag_value",
+              "label": "ค่า tag"
+            }
+          ]
+        }
+      },
+      "name": "query - casing"
+    },
+    {
+      "type": 1,
+      "content": {
         "json": "## รายชื่อ owner สำหรับส่งเมล\n1 แถวต่อคน · owner ที่คั่นด้วยจุลภาคถูกแยกรายคน · ค่าว่างและ `nan` ไม่อยู่ในตารางนี้ (อยู่ในกลุ่ม หา owner ก่อน) · กด Export to Excel มุมขวาของตารางเพื่อนำไปส่งจากกล่องเมลทีม"
       },
       "name": "text - owners"
