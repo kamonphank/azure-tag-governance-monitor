@@ -57,6 +57,20 @@ def _width(column: str, width: str, formatter: int = 0) -> dict:
     return {"columnMatch": column, "formatter": formatter, "formatOptions": {"customColumnWidthSetting": width}}
 
 
+def _highlight_width(column: str, width: str, color: str = "yellow") -> dict:
+    return {
+        "columnMatch": column,
+        "formatter": 18,
+        "formatOptions": {
+            "customColumnWidthSetting": width,
+            "thresholdsOptions": "colors",
+            "thresholdsGrid": [
+                {"operator": "Default", "thresholdValue": None, "representation": color, "text": "{0}{1}"}
+            ],
+        },
+    }
+
+
 def _changes_param(name: str, table: str) -> dict:
     query = (
         changes_query(table)
@@ -303,7 +317,7 @@ def build() -> dict:
                             _width("resource_kind", "15ch"),
                             _width("rg_col", "15ch"),
                             _width("resource_name", "30ch"),
-                            _width("tag_key", "20ch"),
+                            _highlight_width("tag_key", "20ch"),
                             _width("expected_key", "20ch"),
                             _width("tag_value", "35ch"),
                         ],

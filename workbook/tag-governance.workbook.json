@@ -390,9 +390,18 @@
             },
             {
               "columnMatch": "tag_key",
-              "formatter": 0,
+              "formatter": 18,
               "formatOptions": {
-                "customColumnWidthSetting": "20ch"
+                "customColumnWidthSetting": "20ch",
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  {
+                    "operator": "Default",
+                    "thresholdValue": null,
+                    "representation": "yellow",
+                    "text": "{0}{1}"
+                  }
+                ]
               }
             },
             {

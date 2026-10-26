@@ -42,6 +42,7 @@ def run(
         return {"status": "skipped", "reason": "ไม่ใช่วันส่ง (ไม่ใช่วันทำงานแรกของสัปดาห์)", "today": today.isoformat()}
 
     sla = int(os.environ.get("TG_SLA_DAYS", core.SLA_DAYS_DEFAULT))
+    mail_max_items = int(os.environ.get("TG_MAIL_MAX_ITEMS", core.MAIL_MAX_ITEMS_DEFAULT))
     if items is None:
         from azure.identity import DefaultAzureCredential
 
@@ -55,7 +56,9 @@ def run(
         store = BlobStore(os.environ["AzureWebJobsStorage"])
 
     state = store.get("state.json") or core.empty_state()
-    email, new_state, summary = core.run_report(items, state, today, sla, os.environ.get("TG_WORKBOOK_URL", ""))
+    email, new_state, summary = core.run_report(
+        items, state, today, sla, os.environ.get("TG_WORKBOOK_URL", ""), mail_max_items
+    )
     mail_enabled = os.environ.get("TG_MAIL_ENABLED", "true").strip().lower() not in ("false", "0", "no")
     result = {"status": "ok", "today": today.isoformat(), "summary": summary, "dry_run": dry_run, "mail_enabled": mail_enabled, "persist": persist}
 

@@ -106,6 +106,42 @@ def test_email_content_has_counts_and_escapes_html():
     assert "https://portal.azure.com/x" in email["html"]
 
 
+def test_email_limits_detail_rows_and_links_to_workbook():
+    items = [item(str(i), name=f"resource-{i:02d}") for i in range(12)]
+    email, _, summary = core.run_report(
+        items,
+        core.empty_state(),
+        date(2026, 10, 19),
+        workbook_url="https://portal.azure.com/workbook",
+    )
+    assert summary["total"] == 12
+    assert "แสดงรายละเอียดในอีเมล 10 จาก 12 รายการ" in email["html"]
+    assert "ยังมีอีก 2 รายการใน Workbook" in email["text"]
+    assert "resource-09" in email["html"] and "resource-10" not in email["html"]
+
+
+def test_email_prioritizes_escalations_over_new_and_regular_items():
+    items = [item(str(i), name=f"resource-{i:02d}") for i in range(13)]
+    state = {
+        "items": {
+            str(i): {"first_seen": "2026-10-01", "escalated_at": "2026-10-20", "kind": "Resource Group", "name": f"resource-{i:02d}"}
+            for i in range(11)
+        },
+        "last_run": "2026-10-20",
+    }
+    email, _, summary = core.run_report(
+        items,
+        state,
+        date(2026, 10, 26),
+        workbook_url="https://portal.azure.com/workbook",
+    )
+    assert summary["stage2"] == 11
+    assert "แสดงรายละเอียดในอีเมล 10 จาก 13 รายการ" in email["html"]
+    assert all(f"resource-{i:02d}" in email["html"] for i in range(10))
+    assert "resource-10" not in email["html"]
+    assert "resource-11" not in email["html"] and "resource-12" not in email["html"]
+
+
 def test_subject_marks_escalation():
     state = core.empty_state()
     items = [item("a")]
