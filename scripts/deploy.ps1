@@ -21,11 +21,11 @@
   ./scripts/deploy.ps1 -PlanOnly          # ดูก่อน ไม่แก้อะไร
   ./scripts/deploy.ps1                    # deploy จริง (มีถามยืนยัน)
   ./scripts/deploy.ps1 -Part Code         # แก้โค้ดแล้วส่งซ้ำ
-  ./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1
+  ./scripts/deploy.ps1
   ./scripts/deploy.ps1 -Set @{ ResourceGroup = 'rg-lab'; MailEnabled = $false }   # ทับบางค่า
 
 ต้องมี: PowerShell 5.1 หรือ 7+, Azure CLI (az) ที่ login แล้ว, สิทธิ์ Contributor บน RG
-        (และ Owner / User Access Administrator ที่ subscription ถ้า AssignSubscriptionReader = $true)
+        (และต้องมีสิทธิ์สร้าง role assignment หาก AssignSubscriptionReader = $true)
 #>
 [CmdletBinding()]
 param(
@@ -63,7 +63,8 @@ if ($RestoreFrom -and -not (Test-Path (Join-Path $RestoreFrom 'state.json'))) {
 
 $known = @('SubscriptionId', 'ResourceGroup', 'Location', 'Tags', 'ResourceGroupTags', 'NamePrefix', 'PolicyAssignmentName',
   'ScanSubscriptionIds', 'RgNameRegex', 'SlaDays', 'MailEnabled', 'MailTo', 'MailCc', 'MailCcEscalation',
-  'CreateAcsEmail', 'ExistingAcsSender', 'AssignSubscriptionReader', 'EnableTestEndpoint', 'EnableManualSend')
+  'MailMaxItems', 'CreateAcsEmail', 'ExistingAcsSender', 'AssignSubscriptionReader', 'EnableTestEndpoint', 'EnableManualSend'
+  )
 foreach ($k in $cfg.Keys) { if ($known -notcontains $k) { Fail "config มี key ที่ไม่รู้จัก '$k' (พิมพ์ผิดหรือเปล่า) key ที่ใช้ได้: $($known -join ', ')" } }
 
 function Cfg($key, $default) { if ($cfg.ContainsKey($key) -and $null -ne $cfg[$key]) { $cfg[$key] } else { $default } }
@@ -92,6 +93,8 @@ $scanIds = AsList (Cfg 'ScanSubscriptionIds' @())
 foreach ($s in $scanIds) { if ($s -notmatch $guidRx) { $errors.Add("ScanSubscriptionIds มีค่าที่ไม่ใช่ GUID: '$s'") } }
 $sla = [int](Cfg 'SlaDays' 14)
 if ($sla -lt 1) { $errors.Add('SlaDays ต้องมากกว่า 0') }
+$mailMaxItems = [int](Cfg 'MailMaxItems' 10)
+if ($mailMaxItems -lt 1) { $errors.Add('MailMaxItems ต้องมากกว่า 0') }
 $rgRegex = "$(Cfg 'RgNameRegex' '')"
 if ($rgRegex) { try { [void][regex]::new($rgRegex) } catch { $errors.Add("RgNameRegex ไม่ใช่ regex ที่ถูกต้อง: $rgRegex") } }
 $createAcs = [bool](Cfg 'CreateAcsEmail' $true)
@@ -105,7 +108,7 @@ if (-not $createAcs) {
 }
 if ($errors.Count -gt 0) { Fail ("config ไม่ถูกต้อง:`n  - " + ($errors -join "`n  - ")) }
 
-$mailEnabled = [bool](Cfg 'MailEnabled' $false)
+$mailEnabled = [bool](Cfg 'MailEnabled' $true)
 $assignReader = [bool](Cfg 'AssignSubscriptionReader' $true)
 $testEndpoint = [bool](Cfg 'EnableTestEndpoint' $false)
 $manualSend = [bool](Cfg 'EnableManualSend' $false)
@@ -127,6 +130,7 @@ Info "Subscription: $($acct.name) ($($acct.id))"
 if ($acct.id -ne $subId) {
   Fail "az login อยู่คนละ subscription กับใน config`n    ตอนนี้: $($acct.id)`n    config:  $subId`n    สลับด้วย:  az account set --subscription $subId   แล้วรันใหม่"
 }
+
 
 # ---------- 3) ตรวจ Resource Group ----------
 Step "ตรวจ Resource Group '$rg'"
@@ -167,8 +171,7 @@ Info "ACS Email:        $(if ($createAcs) { 'สร้างใหม่ (manage
 Info "Policy assignment ที่ตรวจ: $(Cfg 'PolicyAssignmentName' 'rg-tag-governance-audit')"
 Info "Endpoint ทดสอบ /api/run:   $(if ($testEndpoint) { 'เปิด (อย่าลืมปิดหลังทดสอบ)' } else { 'ปิด' })"
 Info "ส่งเมลทันที /api/send:     $(if ($manualSend) { 'เปิด' } else { 'ปิด' })"
-if ($assignReader) { Warn "จะให้สิทธิ์ Reader แก่ Function (managed identity) ที่ระดับ subscription $subId  <- ต้องใช้ Owner / User Access Administrator" }
-else { Warn 'AssignSubscriptionReader = $false: ต้องให้ admin มอบสิทธิ์ Reader ให้ Function เองหลัง deploy (คำสั่งอยู่ท้ายสคริปต์)' }
+if ($assignReader) { Info "จะมอบสิทธิ์ Reader ให้ Function (managed identity) ที่ระดับ subscription $subId" }
 
 # ---------- เตรียมไฟล์พารามิเตอร์ (ไม่ใส่ค่าลงบรรทัดคำสั่ง) ----------
 $paramFile = $null
@@ -185,7 +188,7 @@ function Write-ParamFile {
   $p = [ordered]@{
     mailTo = ($mailTo -join ','); mailCc = ($mailCc -join ','); mailCcEscalation = ($mailCcEsc -join ',')
     namePrefix = $prefix; assignmentName = "$(Cfg 'PolicyAssignmentName' 'rg-tag-governance-audit')"
-    subscriptionIds = ($scanIds -join ','); rgNameRegex = $rgRegex; slaDays = $sla
+    subscriptionIds = ($scanIds -join ','); rgNameRegex = $rgRegex; slaDays = $sla; mailMaxItems = $mailMaxItems
     mailEnabled = $mailEnabled; createAcs = $createAcs; assignSubscriptionReader = $assignReader
     enableTestEndpoint = $testEndpoint; enableManualSend = $manualSend
     tags = $tagMap
@@ -240,7 +243,7 @@ try {
     $outJson = & az deployment group create --resource-group $rg --name "tag-governance-$(Get-Date -Format yyyyMMddHHmmss)" `
       --template-file "$root/infra/main.bicep" --parameters "@$paramFile" --query properties.outputs -o json
     if ($LASTEXITCODE -ne 0) {
-      Fail "deploy Bicep ไม่สำเร็จ ดูข้อความด้านบน`n    ถ้าเป็น AuthorizationFailed ตอนให้สิทธิ์ Reader: ตั้ง AssignSubscriptionReader = `$false แล้วให้ admin ทำทีหลัง"
+      Fail "deploy Bicep ไม่สำเร็จ ดูข้อความด้านบน"
     }
     $out = $outJson | ConvertFrom-Json
     $funcName = $out.functionAppName.value
@@ -306,25 +309,16 @@ try {
   }
 
   # ---------- 7) ขั้นถัดไป ----------
-  Step 'เสร็จแล้ว — ขั้นตอนถัดไป'
-  Write-Host @"
-1) ถ้า AssignSubscriptionReader = `$false (หรือสิทธิ์ไม่พอ) ให้ admin รัน:
-   az role assignment create --assignee-object-id <principalId> --assignee-principal-type ServicePrincipal --role Reader --scope /subscriptions/$subId
-   (principalId ดูได้จาก:  az functionapp identity show -g $rg -n $funcName --query principalId -o tsv)
-
-2) ทดสอบ (ต้องเปิด endpoint ทดสอบก่อน):
-   az functionapp config appsettings set -g $rg -n $funcName --settings TG_HTTP_ENABLED=true -o none
-   `$key = az functionapp function keys list -g $rg -n $funcName --function-name run_now --query default -o tsv
-   Invoke-RestMethod -Headers @{ "x-functions-key" = `$key } "https://$funcName.azurewebsites.net/api/run?dry_run=1&force=1" | ConvertTo-Json -Depth 6
-   ... ทดสอบเสร็จแล้วปิดกลับ:
-   az functionapp config appsettings set -g $rg -n $funcName --settings TG_HTTP_ENABLED=false -o none
-
-3) เปิด Workbook: Azure Portal > Monitor > Workbooks > Shared > "Tag Governance"
-4) เมื่อพร้อมส่งเมลจริง: ตั้ง MailEnabled = `$true ใน config แล้วรัน  ./scripts/deploy.ps1 -Part Infra
-5) ส่งเมลทันทีนอกรอบ (ต้องตั้ง EnableManualSend = `$true):
-   `$key = az functionapp function keys list -g $rg -n $funcName --function-name send_now --query default -o tsv
-   Invoke-RestMethod -Method Post -Headers @{ "x-functions-key" = `$key } "https://$funcName.azurewebsites.net/api/send" | ConvertTo-Json -Depth 6
-"@
+  Step 'เสร็จแล้ว - ขั้นตอนถัดไป'
+  if (-not $testEndpoint) {
+    Write-Host '1) Endpoint ทดสอบ /api/run ปิดอยู่ (EnableTestEndpoint = $false)'
+    Write-Host '   เปิดชั่วคราว: ./scripts/deploy.ps1 -Part Infra -Set @{ EnableTestEndpoint = $true }'
+    Write-Host '   ทดสอบเสร็จแล้วปิดกลับ: ./scripts/deploy.ps1 -Part Infra'
+  } else {
+    Write-Host '1) ทดสอบ dry-run (ไม่ส่งเมลและไม่บันทึก state):'
+    Write-Host "   `$key = az functionapp function keys list -g $rg -n $funcName --function-name run_now --query default -o tsv"
+    Write-Host "   Invoke-RestMethod -Headers @{ `"x-functions-key`" = `$key } `"https://$funcName.azurewebsites.net/api/run?dry_run=1&force=1`" | ConvertTo-Json -Depth 6"
+  }
 }
 finally {
   if ($paramFile -and (Test-Path $paramFile)) { Remove-Item $paramFile -Force }   # ไฟล์นี้อาจมี connection string

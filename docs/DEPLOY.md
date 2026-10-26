@@ -1,6 +1,6 @@
 # Deployment Guide
 
-คู่มือ deploy ระบบขึ้นระบบจริงของบริษัท ภาพรวมของระบบอยู่ใน [README](../README.md) ส่วนการทดสอบแบบลบแล้วสร้างใหม่ในห้องแล็บอยู่ใน [QUICKSTART](QUICKSTART.md) และงานดูแลหลัง deploy อยู่ใน [OPERATIONS](OPERATIONS.md)
+คู่มือ deploy ระบบขึ้นระบบจริงของบริษัท ภาพรวมของระบบอยู่ใน [README](../README.md) และงานดูแลหลัง deploy อยู่ใน [OPERATIONS](OPERATIONS.md)
 
 > [!WARNING]
 > ห้าม deploy ระบบนี้ 2 ชุด (เช่น แล็บกับของจริง) ลง Resource Group เดียวกัน `teardown.ps1` ของชุดหนึ่งจะลบอีกชุดไปด้วย ดู [OPERATIONS](OPERATIONS.md)
@@ -36,7 +36,7 @@
 |---|---|
 | สร้าง Resource Group ใหม่ | Contributor ระดับ subscription |
 | สร้าง resource ใน Resource Group เดิม | Contributor บน Resource Group นั้น |
-| มอบสิทธิ์ Reader และ Key Vault ให้ Function | Owner หรือ User Access Administrator ที่ subscription |
+| มอบสิทธิ์ Reader และ Key Vault ให้ Function | ใช้สิทธิ์ของผู้ deploy โดยอัตโนมัติ; หาก deploy แจ้ง `AuthorizationFailed` ต้องให้ Owner หรือ User Access Administrator ช่วย |
 
 หากไม่มีสิทธิ์ข้อสุดท้าย ให้ administrator ช่วย deploy
 
@@ -60,10 +60,10 @@ az bicep upgrade
 ### Step 4: ตั้งค่า config
 
 ```powershell
-Copy-Item config/team.example.psd1 config/prod.psd1
+Copy-Item config/deploy.config.example.psd1 config/deploy.config.psd1
 ```
 
-แก้ไฟล์ `config/prod.psd1` ให้ครบ ค่าที่ต้องแก้มีดังนี้ ค่าอื่นใช้ค่าเริ่มต้นได้เลย
+แก้ไฟล์ `config/deploy.config.psd1` ให้ครบ ค่าที่ต้องแก้มีดังนี้ ค่าอื่นใช้ค่าเริ่มต้นได้เลย
 
 ```powershell
 @{
@@ -74,17 +74,17 @@ Copy-Item config/team.example.psd1 config/prod.psd1
     MailTo            = @('<responsible-person-email>')  # ผู้รับอีเมลสรุปทุกฉบับ
     MailCc            = @()                              # Cc ทุกฉบับ (ไม่บังคับ)
     MailCcEscalation  = @('<manager-email>')             # Cc เพิ่มเมื่อมีรายการค้างเกินกำหนดสองรอบ
-    MailEnabled       = $false                           # เริ่มด้วย $false (ดู Step 7)
+    MailEnabled       = $true                            # พร้อม production: ส่งอีเมลตามรอบเมื่อมีรายการค้าง
 }
 ```
 
-- ไฟล์ `config/*.psd1` (ยกเว้น `*.example.psd1`) ถูก `.gitignore` กันไว้ จึงไม่ถูก push ห้ามแก้ไฟล์ตัวอย่างให้เป็นค่าจริง และห้ามใส่ข้อมูลลับในไฟล์ config
+- ไฟล์ `config/deploy.config.psd1` ถูก `.gitignore` กันไว้ จึงไม่ถูก push ห้ามแก้ไฟล์ตัวอย่างให้เป็นค่าจริง และห้ามใส่ข้อมูลลับในไฟล์ config
 - ถ้าใช้ ACS Email เดิมแทนการสร้างใหม่ ให้ตั้ง `CreateAcsEmail = $false`, `ExistingAcsSender` และตัวแปร `$env:TG_ACS_CONNECTION_STRING = '<connection-string>'` ในหน้าต่าง PowerShell เดียวกับที่รัน deploy
 
 ### Step 5: ตรวจสอบก่อน deploy
 
 ```powershell
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -PlanOnly
+./scripts/deploy.ps1 -PlanOnly
 ```
 
 สคริปต์ตรวจ config แสดงสรุปสิ่งที่จะทำ และบอกว่า Resource Group มีอยู่แล้วหรือไม่ โดยไม่เปลี่ยนแปลงสิ่งใด หากมี error สคริปต์ระบุจุดที่ผิด
@@ -92,7 +92,7 @@ Copy-Item config/team.example.psd1 config/prod.psd1
 ### Step 6: Deploy
 
 ```powershell
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1
+./scripts/deploy.ps1
 ```
 
 สคริปต์ถามยืนยันก่อนทุกครั้ง
@@ -110,37 +110,30 @@ Copy-Item config/team.example.psd1 config/prod.psd1
 - **Function App > Environment variables** แถว `TG_ACS_CONNECTION_STRING` มีเครื่องหมายถูกสีเขียว (อ่าน secret จาก Key Vault ได้)
 - **Monitor > Workbooks > Shared > "Tag Governance"** เปิดได้ และตัวเลขใกล้เคียงหน้า Policy compliance
 
-จากนั้นบันทึก snapshot แรกทันที เพื่อให้ระบบเริ่มนับอายุของรายการตั้งแต่วันนี้ (ถ้าไม่ทำ ระบบจะเริ่มนับในวันทำงานแรกของสัปดาห์ถัดไป) โดยเปิด endpoint ทดสอบ `/api/run` ชั่วคราวด้วย `-Set` แล้วปิดกลับ
+จากนั้นตรวจ dry-run และบันทึก snapshot แรกทันที เพื่อให้ระบบเริ่มนับอายุของรายการตั้งแต่วันนี้ โดยเปิด endpoint `/api/run` ชั่วคราวด้วย `-Set` แล้วปิดกลับ
 
 ```powershell
-$cfg = './config/prod.psd1'
+$cfg = './config/deploy.config.psd1'
 $rg = '<resource-group>'; $fn = '<function-app>'   # ชื่อ Function App อยู่ในผลของ deploy.ps1 (บรรทัด "Function App:")
 
 ./scripts/deploy.ps1 -ConfigPath $cfg -Part Infra -Set @{ EnableTestEndpoint = $true }   # เปิด /api/run ชั่วคราว
 $key = az functionapp function keys list -g $rg -n $fn --function-name run_now --query default -o tsv
 
 Invoke-RestMethod -Headers @{ "x-functions-key" = $key } "https://$fn.azurewebsites.net/api/run?dry_run=1&force=1" | ConvertTo-Json -Depth 6   # ดูผลก่อน ไม่บันทึกอะไร
-Invoke-RestMethod -Headers @{ "x-functions-key" = $key } "https://$fn.azurewebsites.net/api/run?dry_run=0&force=1" | ConvertTo-Json -Depth 6   # บันทึก snapshot แรก เรียกครั้งเดียว
+Invoke-RestMethod -Headers @{ "x-functions-key" = $key } "https://$fn.azurewebsites.net/api/run?dry_run=0&force=1" | ConvertTo-Json -Depth 6   # บันทึก snapshot แรกและส่งเมลตาม MailEnabled
 
 ./scripts/deploy.ps1 -ConfigPath $cfg -Part Infra   # ปิด /api/run กลับตามค่าใน config
 ```
 
 - ผลของ `dry_run=1` ต้องมี `"status": "ok"` และ `summary.total` ใกล้เคียงหน้า Policy compliance
-- ผลของ `dry_run=0` ต้องมี `"dry_run": false` และเพราะ `MailEnabled` ยังเป็น `$false` ระบบจะไม่ส่งอีเมล แต่บันทึก `state.json` และ `snapshots/<date>.json` ใน Blob container `tag-governance`
+- ผลของ `dry_run=0` ต้องมี `"dry_run": false` และระบบจะบันทึก `state.json` กับ `snapshots/<date>.json` ใน Blob container `tag-governance`; หากมีรายการค้าง ระบบอาจส่งอีเมลตาม `MailEnabled = $true`
 - `$key` คือ function key ดูคำอธิบายในหัวข้อ [Testing](#3-testing)
 
-ปล่อยให้ระบบเก็บ snapshot ไปอย่างน้อย 1 สัปดาห์เพื่อให้มีข้อมูลอายุของรายการ แล้วเปิดส่งอีเมล
-
-```powershell
-# แก้ MailEnabled = $true ใน config/prod.psd1 แล้วรัน
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -Part Infra
-```
-
-ทดสอบเพิ่มเติมได้ตามหัวข้อ [Testing](#3-testing)
+เมื่อ deploy เสร็จ ระบบพร้อมส่งอีเมลตามรอบทันที ไม่ต้องเปลี่ยน `MailEnabled` เพิ่มเติม ทดสอบเพิ่มเติมได้ตามหัวข้อ [Testing](#3-testing)
 
 ### Checklist ก่อนใช้งานจริง
 
-- [ ] ทดสอบในห้องแล็บตาม [QUICKSTART](QUICKSTART.md) และได้รับอนุมัติตามขั้นตอนของบริษัท
+- [ ] ทดสอบใน environment ที่แยกจาก production และได้รับอนุมัติตามขั้นตอนของบริษัท
 - [ ] ยืนยันสถานะของ ACS Email ที่ https://aka.ms/acs-retirement และขอให้ผู้ดูแลอีเมลอนุญาตผู้ส่งจาก `azurecomm.net` (อีเมลมักมี banner "external sender" และอาจเข้า Junk)
 - [ ] ตรวจสอบ `function/holidays.json` กับปฏิทินของบริษัท
 - [ ] กำหนดผู้ดูแล Function ภายหลังสิ้นสุดโครงการ
@@ -162,18 +155,18 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 | `ScanSubscriptionIds` | No | `@()` | จำกัด subscription ที่ scan ว่างคือทุก subscription ที่ Function อ่านได้ | `TG_SUBSCRIPTION_IDS` |
 | `RgNameRegex` | No | ว่าง | กรองเฉพาะ Resource Group ที่ชื่อตรง regex โดยปกติไม่ต้องใช้ | `TG_RG_NAME_REGEX` |
 | `SlaDays` | No | `14` | จำนวนวันที่ค้างก่อนเข้าสู่ Stage 1 | `TG_SLA_DAYS` |
-| `MailEnabled` | No | `$false` | `$false` คือไม่ส่งอีเมล (เก็บเฉพาะ snapshot และ state) | `TG_MAIL_ENABLED` |
+| `MailEnabled` | No | `$true` | `$true` คือส่งอีเมลตามรอบเมื่อมีรายการค้าง; `$false` ใช้หยุดส่งชั่วคราว | `TG_MAIL_ENABLED` |
 | `MailCc` | No | `@()` | Cc ของอีเมลสรุปทุกฉบับ | `TG_MAIL_CC` |
 | `MailCcEscalation` | No | `@()` | Cc เพิ่มเติมเฉพาะอีเมลที่มีรายการ Stage 2 | `TG_MAIL_CC_ESCALATION` |
 | `CreateAcsEmail` | No | `$true` | `$true` คือสร้าง ACS Email ใหม่ `$false` คือใช้ ACS เดิม | `TG_MAIL_SENDER`, `TG_ACS_CONNECTION_STRING` |
 | `ExistingAcsSender` | เมื่อ `CreateAcsEmail = $false` | ว่าง | ที่อยู่ผู้ส่งของ ACS เดิม | `TG_MAIL_SENDER` |
-| `AssignSubscriptionReader` | No | `$true` | ให้สคริปต์มอบสิทธิ์ Reader แก่ Function | - |
+| `AssignSubscriptionReader` | No | `$true` | ให้สคริปต์มอบสิทธิ์ Reader แก่ Function โดยอัตโนมัติ; ใช้ `$false` เฉพาะกรณีองค์กรไม่อนุญาตให้ deploy มอบสิทธิ์ |
 | `EnableTestEndpoint` | No | `$false` | เปิด endpoint `/api/run` สำหรับทดสอบ | `TG_HTTP_ENABLED` |
 | `EnableManualSend` | No | `$false` | เปิด endpoint `POST /api/send` สำหรับส่งอีเมลรายงานทันทีตอนไหนก็ได้ | `TG_MANUAL_SEND_ENABLED` |
 
 ข้อควรทราบ
 
-- **`MailEnabled = $false`** ระบบไม่บันทึกว่ารายการถูก escalate เมื่อเปิดส่งอีเมลภายหลัง รายการที่ค้างนานจะเริ่มที่ Stage 1 เสมอ ไม่ข้ามไป Stage 2 จึงแนะนำให้เริ่มด้วย `$false` อย่างน้อย 1 สัปดาห์
+- **`MailEnabled = $true`** เป็นค่าเริ่มต้นสำหรับ production ระบบส่งอีเมลตามรอบเมื่อมีรายการค้าง และเก็บ state ตามปกติ
 - **Cc** หากอีเมลใน `MailCc` และ `MailCcEscalation` ซ้ำกัน ระบบใส่เพียงครั้งเดียว
 - **สิทธิ์ Reader** สคริปต์มอบให้เฉพาะ subscription ใน `SubscriptionId` หากต้องการ scan subscription อื่น administrator ต้องมอบสิทธิ์ให้เอง
 - **`EnableTestEndpoint`** ปิดไว้เป็นค่าเริ่มต้น เพราะ `dry_run=0` ส่งอีเมลและบันทึก state ได้จริง เปิดเฉพาะตอนทดสอบ
@@ -196,19 +189,21 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 ## 3. Testing
 
 1. **Workbook** เปิด Azure Portal ไปที่ Monitor, Workbooks, Shared แล้วเลือก "Tag Governance" และเทียบตัวเลขกับหน้า Policy compliance
-2. **Dry run** ตั้ง `EnableTestEndpoint = $true` แล้วรัน `-Part Infra` จากนั้นเรียกโดยไม่ส่งอีเมลและไม่บันทึก state
+2. **Dry run** เปิด endpoint ชั่วคราวด้วย `-Set` แล้วรัน `-Part Infra` จากนั้นเรียกโดยไม่ส่งอีเมลและไม่บันทึก state
 
 ```powershell
 $rg = '<resource-group>'; $fn = '<function-app>'
+./scripts/deploy.ps1 -Part Infra -Set @{ EnableTestEndpoint = $true }
 $key = az functionapp function keys list -g $rg -n $fn --function-name run_now --query default -o tsv
 Invoke-RestMethod -Headers @{ "x-functions-key" = $key } "https://$fn.azurewebsites.net/api/run?dry_run=1&force=1" | ConvertTo-Json -Depth 6
+./scripts/deploy.ps1 -Part Infra
 ```
 
 **Function key** endpoint `/api/run` และ `/api/send` กำหนดให้ผู้เรียกต้องแนบ key ทุกครั้ง (auth level `FUNCTION`) ตัวอย่างในเอกสารนี้ส่ง key ใน header `x-functions-key` แทน `?code=` ใน URL เพราะ URL ไปค้างอยู่ใน history ของ shell และ log ได้ง่ายกว่า ถ้าไม่มีหรือผิดจะได้ `401` ซึ่งป้องกันไม่ให้คนที่รู้แค่ URL สั่งส่งอีเมลหรือแก้ state ได้ Azure สร้าง key ชื่อ `default` ให้แต่ละ function อัตโนมัติ คำสั่ง `az functionapp function keys list` ใช้สิทธิ์ Azure ของผู้ที่ login อยู่ไปอ่าน key นั้นมา จึงต้องดึงแยกตามชื่อ function (`run_now` หรือ `send_now`) ถือว่า key เป็นความลับ ห้ามแปะลงเอกสารหรือแชต หากรั่วให้สร้างใหม่ที่ Portal > Function App > เลือก function > Function Keys > Renew
 
 ตัวอย่างในเอกสารนี้ใช้ `Invoke-RestMethod` ซึ่งเป็นคำสั่งของ PowerShell เอง ใช้ได้ทั้ง Windows PowerShell 5.1 และ PowerShell 7 และต่อ `| ConvertTo-Json -Depth 6` เพื่อให้เห็นผลเป็น JSON ครบทุกระดับ (ถ้าไม่ต่อ ค่าที่เป็น list จะแสดงเป็น `System.Object[]`) ไม่ควรใช้ `curl` ใน Windows PowerShell 5.1 เพราะเป็น alias ของ `Invoke-WebRequest` ซึ่งไม่รู้จัก option ของ curl เช่น `-X POST` หากต้องการ curl จริงให้พิมพ์ `curl.exe`
 
-ผลที่ถูกต้องมี `"status": "ok"` พร้อม `summary` (จำนวนรายการ) และตัวอย่างอีเมลที่ระบบจะส่ง (เมื่อมีรายการค้าง)
+ผลที่ถูกต้องมี `"status": "ok"` พร้อม `summary` (จำนวนรายการ) และตัวอย่างอีเมลที่ระบบจะส่ง (เมื่อมีรายการค้าง) จากนั้นเปิด Workbook แล้วดู 2 ตารางหลัก: รายการที่ไม่ผ่าน และ tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน
 
 | Parameter | Description |
 |---|---|
@@ -221,7 +216,7 @@ Invoke-RestMethod -Headers @{ "x-functions-key" = $key } "https://$fn.azurewebsi
 
 ใช้ `today` ได้เฉพาะกับ `dry_run=1` ถ้าใส่ร่วมกับ `dry_run=0` ระบบจะตอบ `400` และไม่ทำอะไร เพราะจะบันทึก state ที่ไม่ตรงกับความเป็นจริง
 
-**ส่งอีเมลทันทีตอนไหนก็ได้** ตั้ง `EnableManualSend = $true` แล้วรัน `-Part Infra` จากนั้นเรียก
+**ส่งอีเมลทันทีตอนไหนก็ได้** (ใช้เฉพาะกรณีจำเป็น ไม่ใช่ค่า production ปกติ) ตั้ง `EnableManualSend = $true` แล้วรัน `-Part Infra` จากนั้นเรียก
 
 ```powershell
 $rg = '<resource-group>'; $fn = '<function-app>'
@@ -240,9 +235,9 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 **Removal และเริ่มใหม่** ใช้ `scripts/teardown.ps1` ซึ่งอ่าน config เดียวกับ `deploy.ps1` และลบเฉพาะ resource ที่ deployment ของโปรเจกต์นี้สร้าง (ไม่แตะ resource อื่นใน Resource Group) พร้อมเพิกถอนสิทธิ์ Reader และ purge Key Vault / Log Analytics ที่ค้างใน soft-delete ซึ่งหากไม่ purge การ deploy ใหม่ด้วยชื่อเดิมจะชน
 
 ```powershell
-./scripts/teardown.ps1 -ConfigPath ./config/prod.psd1                              # ดูรายการที่จะลบ (ยังไม่ลบ)
-./scripts/teardown.ps1 -ConfigPath ./config/prod.psd1 -BackupTo ./backup -Execute # สำรอง state แล้วลบ (ต้องพิมพ์ชื่อ Resource Group ยืนยัน)
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -RestoreFrom ./backup          # deploy ใหม่ และคืน state ให้อายุของรายการนับต่อ
+./scripts/teardown.ps1                              # ดูรายการที่จะลบ (ยังไม่ลบ)
+./scripts/teardown.ps1 -BackupTo ./backup -Execute # สำรอง state แล้วลบ (ต้องพิมพ์ชื่อ Resource Group ยืนยัน)
+./scripts/deploy.ps1 -RestoreFrom ./backup          # deploy ใหม่ และคืน state ให้อายุของรายการนับต่อ
 ```
 
 - ถ้าไม่ใช้ `-BackupTo` ไฟล์ `state.json` จะหาย และอายุของรายการทั้งหมดเริ่มนับใหม่
@@ -255,7 +250,7 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 |---|---|
 | สคริปต์แจ้งว่า `az login` อยู่คนละ subscription | ใช้ `az account set --subscription <id>` |
 | Bicep compile ไม่ผ่าน หรือ crash | Bicep เก่าเกินไป รัน `az bicep upgrade` |
-| `AuthorizationFailed` ขณะมอบสิทธิ์ Reader หรือ Key Vault | ไม่มีสิทธิ์ Owner หรือ User Access Administrator ให้ administrator deploy |
+| `AuthorizationFailed` ขณะ deploy | ผู้ deploy ไม่มีสิทธิ์สร้าง role assignment หรือ resource ให้ผู้มีสิทธิ์ระดับ Owner/User Access Administrator ช่วย แล้วรันใหม่ |
 | `TG_ACS_CONNECTION_STRING` ขึ้นเครื่องหมายแดง | สิทธิ์ยังไม่แพร่กระจาย รอ 2-3 นาที แล้วรีสตาร์ต Function App |
 | ชื่อ resource ซ้ำ | เปลี่ยน `NamePrefix` |
 | deploy ใหม่ชนชื่อ Key Vault หรือ Log Analytics | ของเก่าค้างใน soft-delete รัน `teardown.ps1` ซึ่ง purge ให้ หรือเปลี่ยน `NamePrefix` |

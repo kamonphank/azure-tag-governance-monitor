@@ -1,4 +1,4 @@
-// Azure Tag Governance Monitoring — deploy ทุกอย่างลง Resource Group เดียว
+// Azure Tag Governance Monitoring - deploy ทุกอย่างลง Resource Group เดียว
 //   Storage + Function App (Python) + ACS Email + Workbook (+ สิทธิ์ Reader ระดับ subscription)
 targetScope = 'resourceGroup'
 
@@ -34,6 +34,10 @@ param subscriptionIds string = ''
 
 @description('ค้างครบกี่วันถึงยกระดับ')
 param slaDays int = 14
+
+@description('จำนวนรายการสูงสุดที่แสดงรายละเอียดในอีเมล')
+@minValue(1)
+param mailMaxItems int = 10
 
 @description('สร้าง Azure Communication Services Email ใหม่ไหม (false = ใช้ของที่มีอยู่ ต้องใส่ acsConnectionString และ mailSender)')
 param createAcs bool = true
@@ -187,7 +191,7 @@ resource workbook 'Microsoft.Insights/workbooks@2023-06-01' = {
   tags: tags
   kind: 'shared'
   properties: {
-    displayName: 'Tag Governance — รายการที่ยังไม่ผ่าน'
+    displayName: 'Tag Governance - รายการที่ยังไม่ผ่าน'
     category: 'workbook'
     sourceId: 'Azure Monitor'
     version: '1.0'
@@ -232,6 +236,7 @@ resource func 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'TG_ASSIGNMENT_NAME', value: assignmentName }
         { name: 'TG_SUBSCRIPTION_IDS', value: subscriptionIds }
         { name: 'TG_SLA_DAYS', value: string(slaDays) }
+        { name: 'TG_MAIL_MAX_ITEMS', value: string(mailMaxItems) }
         { name: 'TG_MAIL_ENABLED', value: string(mailEnabled) }
         { name: 'TG_MAIL_TO', value: mailTo }
         { name: 'TG_MAIL_CC', value: mailCc }
@@ -246,6 +251,7 @@ resource func 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'WEBSITE_RUN_FROM_PACKAGE', value: runFromPackage }
       ])
     }
+
   }
 }
 

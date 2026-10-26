@@ -25,12 +25,12 @@ KIND_RG = 'resource_kind == "Resource Group"'
 KIND_VM = 'resource_kind == "Virtual Machine"'
 
 
-def _arg(query: str, title: str = "", **extra) -> dict:
+def _arg(query: str, title: str = "", resource_type: str = "microsoft.resourcegraph/resources", **extra) -> dict:
     content = {
         "version": "KqlItem/1.0",
         "query": query,
         "queryType": 1,
-        "resourceType": "microsoft.resourcegraph/resources",
+        "resourceType": resource_type,
         "crossComponentResources": ["{Subscription}"],
     }
     if title:
@@ -55,6 +55,20 @@ def _hidden(column: str) -> dict:
 
 def _width(column: str, width: str, formatter: int = 0) -> dict:
     return {"columnMatch": column, "formatter": formatter, "formatOptions": {"customColumnWidthSetting": width}}
+
+
+def _highlight_width(column: str, width: str, color: str = "yellow") -> dict:
+    return {
+        "columnMatch": column,
+        "formatter": 18,
+        "formatOptions": {
+            "customColumnWidthSetting": width,
+            "thresholdsOptions": "colors",
+            "thresholdsGrid": [
+                {"operator": "Default", "thresholdValue": None, "representation": color, "text": "{0}{1}"}
+            ],
+        },
+    }
 
 
 def _changes_param(name: str, table: str) -> dict:
@@ -114,19 +128,22 @@ def build() -> dict:
         + "| project azure_id, resource_kind, rg_col, who, detail, owner_value, evaluated_at"
     )
 
-    owners_q = (
-        base
-        + f'| where who != "{WHO_PENDING}"\n'
-        + '| extend entry = strcat(iff(' + KIND_RG + ', "RG ", "VM "), resource_name, " (", detail, ")")\n'
-        + '| mv-expand owner = split(owner_value, ",")\n'
-        + '| extend owner = trim(@"\\s+", tostring(owner))\n'
-        + '| where owner != "" and owner !~ "nan"\n'
-        + "| summarize n = dcount(resource_id), entries = make_set(entry) by owner\n"
-        + '| extend email_ok = iff(owner matches regex @"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", "ใช่", "ไม่ใช่ (ตรวจ tag)")\n'
-        + '| extend ok_order = iff(email_ok == "ใช่", 1, 0)\n'
-        + '| order by ok_order asc, n desc, owner asc\n'
-        + '| project owner, email_ok, n, entries = array_strcat(entries, "  ·  ")'
-    )
+    # Azure Policy compliance ไม่ได้ช่วยหา key ที่ตัวพิมพ์ต่างจากมาตรฐานในบางกรณี
+    # ตรวจ tag ปัจจุบันจาก Resource Graph โดยตรง เพื่อให้พบ resource ที่ Policy มองว่าผ่านด้วย
+    casing_q = '''resourcecontainers
+| where type =~ "microsoft.resources/subscriptions/resourcegroups"
+| project azure_id = id, resource_name = name, rg_name = name, resource_kind = "Resource Group", tags
+| union (resources
+| where type =~ "microsoft.compute/virtualmachines"
+| project azure_id = id, resource_name = name, rg_name = tostring(split(id, "/")[4]), resource_kind = "Virtual Machine", tags)
+| extend tag_bag = todynamic(tags)
+| mv-expand tag_key = bag_keys(tag_bag)
+| extend tag_key = tostring(tag_key), expected_key = tolower(tostring(tag_key))
+| where expected_key in ("owner", "department", "environment", "project") and tag_key != expected_key
+| extend tag_value = tostring(tag_bag[tag_key])
+| extend rg_col = iff(resource_kind == "Resource Group", "", rg_name)
+| order by resource_kind asc, resource_name asc, expected_key asc
+| project azure_id, resource_kind, rg_col, resource_name, tag_key, expected_key, tag_value'''
 
     def static_param(name: str, label: str, values: list[str]) -> dict:
         return {
@@ -210,10 +227,10 @@ def build() -> dict:
             },
             _text(
                 "text - legend",
-                f"**{WHO_FIX}** — tag มีค่าแล้วแต่รูปแบบหรือค่าไม่ถูก แก้ได้เลย  \n"
-                f"**{WHO_ASK}** — มี owner แต่ขาด tag อื่น ติดต่อ owner เพื่อขอข้อมูล  \n"
-                f"**{WHO_FIND}** — ไม่มี owner ที่ติดต่อได้ ต้องหาเจ้าของ resource ก่อน  \n"
-                f"**{WHO_PENDING}** — แก้ tag แล้วหลังจาก Policy ตรวจรอบล่าสุด รอผลยืนยัน (ปกติภายใน 30 นาที) ไม่ต้องทำอะไร "
+                f"**{WHO_FIX}** - tag มีค่าแล้วแต่รูปแบบหรือค่าไม่ถูก แก้ได้เลย  \n"
+                f"**{WHO_ASK}** - มี owner แต่ขาด tag อื่น ติดต่อ owner เพื่อขอข้อมูล  \n"
+                f"**{WHO_FIND}** - ไม่มี owner ที่ติดต่อได้ ต้องหาเจ้าของ resource ก่อน  \n"
+                f"**{WHO_PENDING}** - แก้ tag แล้วหลังจาก Policy ตรวจรอบล่าสุด รอผลยืนยัน (ปกติภายใน 30 นาที) ไม่ต้องทำอะไร "
                 "และไม่นับรวมในตัวเลขด้านบน · ถ้าค้างนาน สั่งตรวจทันทีด้วย `az policy state trigger-scan --resource-group <ชื่อ RG>`",
             ),
             _text("text - items", "## รายการที่ไม่ผ่าน"),
@@ -264,49 +281,44 @@ def build() -> dict:
                 "name": "query - items",
             },
             _text(
-                "text - owners",
-                "## รายชื่อ owner สำหรับส่งเมล\n"
-                "1 แถวต่อคน · owner ที่คั่นด้วยจุลภาคถูกแยกรายคน · ค่าว่างและ `nan` ไม่อยู่ในตารางนี้ (อยู่ในกลุ่ม หา owner ก่อน) · "
-                "กด Export to Excel มุมขวาของตารางเพื่อนำไปส่งจากกล่องเมลทีม",
+                "text - casing",
+                "## Tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน\n"
+                "ตรวจจาก tag ปัจจุบันโดยตรง รวม resource ที่ Azure Policy อาจรายงานว่าผ่าน "
+                "ให้แก้ key เป็นตัวพิมพ์เล็กตามมาตรฐาน เช่น `Owner` → `owner`",
             ),
             {
                 "type": 3,
                 "content": _arg(
-                    owners_q,
+                    casing_q,
                     size=3,
                     visualization="table",
                     showExportToExcel=True,
                     exportToExcelOptions="visible",
-                    noDataMessage="ไม่มี owner ที่ต้องติดต่อ",
+                    noDataMessage="ไม่พบ tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน",
                     gridSettings={
                         "rowLimit": 1000,
                         "filter": True,
                         "formatters": [
-                            _width("owner", "30ch"),
-                            {
-                                "columnMatch": "email_ok",
-                                "formatter": 18,
-                                "formatOptions": {
-                                    "customColumnWidthSetting": "18ch",
-                                    "thresholdsOptions": "colors",
-                                    "thresholdsGrid": [
-                                        {"operator": "==", "thresholdValue": "ใช่", "representation": "transparent", "text": "{0}{1}"},
-                                        {"operator": "Default", "thresholdValue": None, "representation": "redBright", "text": "{0}{1}"},
-                                    ],
-                                },
-                            },
-                            _width("n", "12ch"),
-                            _width("entries", "120ch"),
+                            {"columnMatch": "azure_id", "formatter": 13, "formatOptions": {"linkTarget": "Resource", "showIcon": False, "customColumnWidthSetting": "20ch"}},
+                            _width("resource_kind", "15ch"),
+                            _width("rg_col", "15ch"),
+                            _width("resource_name", "30ch"),
+                            _highlight_width("tag_key", "20ch"),
+                            _width("expected_key", "20ch"),
+                            _width("tag_value", "35ch"),
                         ],
                         "labelSettings": [
-                            {"columnId": "owner", "label": "owner"},
-                            {"columnId": "email_ok", "label": "อีเมลใช้ได้"},
-                            {"columnId": "n", "label": "จำนวน"},
-                            {"columnId": "entries", "label": "รายการและสิ่งที่ไม่ผ่าน"},
+                            {"columnId": "azure_id", "label": "ชื่อ resource"},
+                            {"columnId": "resource_kind", "label": "ประเภท"},
+                            {"columnId": "rg_col", "label": "อยู่ใน RG"},
+                            {"columnId": "resource_name", "label": "ชื่อ"},
+                            {"columnId": "tag_key", "label": "key ที่พบ"},
+                            {"columnId": "expected_key", "label": "key มาตรฐาน"},
+                            {"columnId": "tag_value", "label": "ค่า tag"},
                         ],
                     },
                 ),
-                "name": "query - owners",
+                "name": "query - casing",
             },
         ],
         "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json",

@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from .queries import WHO_PENDING
 
 SLA_DAYS_DEFAULT = 14
+MAIL_MAX_ITEMS_DEFAULT = 10
 
 
 def empty_state() -> dict:
@@ -207,9 +208,34 @@ def _text_rows(rows: list[dict], new_ids: set[str]) -> str:
     return "\n".join(out)
 
 
-def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla_days: int, workbook_url: str = "", pending=()) -> dict:
+def build_email(
+    items_aged,
+    appeared,
+    resolved,
+    stage1,
+    stage2,
+    today: date,
+    sla_days: int,
+    workbook_url: str = "",
+    pending=(),
+    max_items: int = MAIL_MAX_ITEMS_DEFAULT,
+) -> dict:
     """items_aged = รายการที่ต้องทำ (ไม่รวม pending = แก้ tag แล้ว รอ Policy ตรวจซ้ำ ซึ่งแสดงแยกท้ายเมล)"""
+    if max_items < 1:
+        raise ValueError("max_items ต้องมากกว่าหรือเท่ากับ 1")
     new_ids = {i["resource_id"] for i in appeared}
+    stage1_ids = {i["resource_id"] for i in stage1}
+    stage2_ids = {i["resource_id"] for i in stage2}
+    priority = lambda item: (
+        0 if item["resource_id"] in stage2_ids
+        else 1 if item["resource_id"] in stage1_ids
+        else 2 if item["resource_id"] in new_ids
+        else 3
+    )
+    visible_ids = {i["resource_id"] for i in sorted(items_aged, key=priority)[:max_items]}
+    omitted_count = max(0, len(items_aged) - len(visible_ids))
+    stage1 = [i for i in stage1 if i["resource_id"] in visible_ids]
+    stage2 = [i for i in stage2 if i["resource_id"] in visible_ids]
     appeared = [i for i in items_aged if i["resource_id"] in new_ids]
     n_rg = sum(1 for i in items_aged if i["kind"] == "Resource Group")
     n_vm = len(items_aged) - n_rg
@@ -255,6 +281,13 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
     if workbook_url:
         parts.append(_button(workbook_url, "เปิด Workbook เพื่อดูรายละเอียดและ Export รายชื่อ owner"))
         txt.append(f"Workbook: {workbook_url}")
+    if omitted_count:
+        note = f"แสดงรายละเอียดในอีเมล {len(visible_ids)} จาก {len(items_aged)} รายการ ยังมีอีก {omitted_count} รายการใน Workbook"
+        parts.append(
+            f'<div style="margin-top:16px;padding:10px 14px;background:#fff8e1;border-left:4px solid #d97706;font-size:13px;color:{_INK}">'
+            f"{_e(note)}</div>"
+        )
+        txt.append(note)
 
     # ---- รายการที่ต้องยกระดับ (ซ้ำกับตารางด้านล่างโดยตั้งใจ เพราะเป็นเรื่องที่ต้องเห็นก่อน)
     if stage2:
@@ -268,10 +301,12 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
 
     # ---- รายการทั้งหมด แยกตามสิ่งที่ต้องทำ
     for who, desc, bg, fg in order:
-        rows = groups[who]
+        rows = [r for r in groups[who] if r["resource_id"] in visible_ids]
+        if not rows:
+            continue
         title = f"{_pill(who, bg, fg)} <span style='margin-left:4px'>{len(rows)} รายการ</span>"
         parts.append(_section(title, desc, _table(rows, sla_days, new_ids)))
-        txt.append(f"{who} ({len(rows)})" + (f" — {desc}" if desc else "") + "\n" + _text_rows(rows, new_ids))
+        txt.append(f"{who} ({len(groups[who])})" + (f" - {desc}" if desc else "") + "\n" + _text_rows(rows, new_ids))
 
     if pending:
         names = ", ".join(f"{_e(r['name'])} <span style='color:{_MUTED}'>({'RG' if r['kind'] == 'Resource Group' else 'VM'})</span>" for r in pending)
@@ -280,7 +315,7 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
             f'<b>แก้ tag แล้ว รอ Policy ตรวจซ้ำ ({len(pending)})</b><br>{names}'
             f'<div style="font-size:12px;color:{_MUTED};margin-top:4px">ไม่ต้องทำอะไร ไม่นับรวมในตัวเลขด้านบน · ถ้า Policy ยืนยันว่าผ่าน จะย้ายไป "แก้แล้ว" ในรอบหน้า</div></div>'
         )
-        txt.append(f"แก้ tag แล้ว รอ Policy ตรวจซ้ำ ({len(pending)}) — ไม่ต้องทำอะไร\n" + "\n".join(f"  - {r['name']} ({r['kind']})" for r in pending))
+        txt.append(f"แก้ tag แล้ว รอ Policy ตรวจซ้ำ ({len(pending)}) - ไม่ต้องทำอะไร\n" + "\n".join(f"  - {r['name']} ({r['kind']})" for r in pending))
 
     if resolved:
         names = ", ".join(f"{_e(r['name'])} <span style='color:{_MUTED}'>({'RG' if r['kind'] == 'Resource Group' else 'VM'})</span>" for r in resolved)
@@ -291,7 +326,7 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
         txt.append(f"แก้แล้วตั้งแต่รอบก่อน ({len(resolved)})\n" + "\n".join(f"  - {r['name']} ({r['kind']})" for r in resolved))
 
     # ---- ท้ายเมล
-    legend = "".join(f"<div style='margin-top:4px'><b>{_e(w)}</b> — {_e(d)}</div>" for w, d, _, _ in WHO_GROUPS)
+    legend = "".join(f"<div style='margin-top:4px'><b>{_e(w)}</b> - {_e(d)}</div>" for w, d, _, _ in WHO_GROUPS)
     parts.append(
         f'<div style="margin-top:32px;padding-top:14px;border-top:1px solid {_LINE};font-size:12px;color:{_MUTED};line-height:1.6">'
         f"{legend}"
@@ -317,7 +352,14 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
     }
 
 
-def run_report(items: list[dict], state: dict, today: date, sla_days: int = SLA_DAYS_DEFAULT, workbook_url: str = ""):
+def run_report(
+    items: list[dict],
+    state: dict,
+    today: date,
+    sla_days: int = SLA_DAYS_DEFAULT,
+    workbook_url: str = "",
+    mail_max_items: int = MAIL_MAX_ITEMS_DEFAULT,
+):
     """ฟังก์ชันเดียวที่รวมขั้นตอนทั้งหมด คืน (email|None, state_ใหม่, สรุปตัวเลข)
     รายการที่รอ Policy ตรวจซ้ำยังถูกเก็บใน state (อายุนับต่อ) แต่ไม่นับรวม ไม่ escalate และไม่ทำให้ต้องส่งเมล"""
     state1, appeared, resolved = update_state(items, state, today)
@@ -331,5 +373,5 @@ def run_report(items: list[dict], state: dict, today: date, sla_days: int = SLA_
     }
     if not should_send(active):
         return None, state2, summary
-    email = build_email(active, appeared, resolved, stage1, stage2, today, sla_days, workbook_url, pending)
+    email = build_email(active, appeared, resolved, stage1, stage2, today, sla_days, workbook_url, pending, mail_max_items)
     return email, state2, summary

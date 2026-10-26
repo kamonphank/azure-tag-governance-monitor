@@ -33,7 +33,29 @@ _DETAIL = """| extend t = todynamic(tostring(tags))
 | mv-expand policy = failed_policies
 | extend tag = replace_string(tolower(tostring(policy)), "require-tag-", "")
 | extend tag_value = tostring(t[tag])
-| extend problem = case(tag == "owner" and owner_value =~ "nan", "owner = nan", tag == "owner" and isempty(tag_value), "ไม่มี owner", tag == "owner", "owner รูปแบบผิด", isempty(tag_value), strcat("ไม่มี ", tag), strcat(tag, " ค่าไม่ถูก: ", tag_value))
+| extend problem = case(
+    tag == "owner" and owner_value =~ "nan", "owner = nan",
+    isempty(tag_value), strcat("ไม่มี ", tag),
+    tag == "owner" and tag_value contains " ", "owner มีช่องว่าง (คั่นหลายอีเมลด้วย comma)",
+    tag == "owner" and tag_value contains "\\t", "owner มี tab",
+    tag == "owner" and tag_value contains "\\r", "owner มี carriage return",
+    tag == "owner" and tag_value contains "\\n", "owner มีขึ้นบรรทัดใหม่",
+    tag == "owner" and (tag_value contains ",," or tag_value startswith "," or tag_value endswith ","), "owner คั่นอีเมลด้วย comma ไม่ถูกต้อง",
+    tag == "owner" and array_length(split(tag_value, ",")) > 100, "owner มีอีเมลเกิน 100 รายการ",
+    tag == "owner" and not(tag_value matches regex @"^[^,@\\s]+@[^,@\\s]+(,[^,@\\s]+@[^,@\\s]+)*$"), "owner รูปแบบอีเมลไม่ถูกต้อง",
+    tag == "owner", "owner domain ไม่ตรงกับ Policy (ต้องตรงตามค่าที่กำหนดและเป็นตัวพิมพ์เล็ก)",
+    tag == "department" and (tag_value contains "\\r" or tag_value contains "\\n"), "department มีอักขระขึ้นบรรทัดใหม่",
+    tag == "department", strcat("department ไม่อยู่ในค่าที่ Policy อนุญาต: ", tag_value),
+    tag == "environment" and (tag_value contains "\\r" or tag_value contains "\\n"), "environment มีอักขระขึ้นบรรทัดใหม่",
+    tag == "environment", strcat("environment ไม่อยู่ในค่าที่ Policy อนุญาต: ", tag_value),
+    tag == "project" and tag_value contains "\\t", "project มี tab",
+    tag == "project" and (tag_value contains "\\r" or tag_value contains "\\n"), "project มีอักขระขึ้นบรรทัดใหม่",
+    tag == "project" and tag_value contains ",,", "project มี comma ซ้ำ",
+    tag == "project" and (tag_value startswith "," or tag_value endswith ","), "project มี comma นำหน้าหรือต่อท้าย",
+    tag == "project" and tag_value contains ", ", "project มีช่องว่างหลัง comma",
+    tag == "project" and tag_value contains " ,", "project มีช่องว่างก่อน comma",
+    tag == "project", strcat("project ไม่ผ่านรูปแบบที่ Policy กำหนด: ", tag_value),
+    strcat(tag, " ค่าไม่ถูก: ", tag_value))
 | extend rank = case(tag == "owner", 0, isempty(tag_value), 1, 2)
 | order by resource_id asc, rank asc, tag asc
 | summarize problems = make_list(problem), n_missing = countif(tag != "owner" and isempty(tag_value)), failed_policies = make_set(policy) by resource_id, azure_id, resource_name, rg_name, owner_value, evaluated_at, tags_s = tostring(tags)

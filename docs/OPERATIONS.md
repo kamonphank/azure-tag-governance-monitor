@@ -31,7 +31,7 @@
 คำสั่งในคู่มือนี้ใช้ตัวแปรชุดนี้ แก้แค่บรรทัดแรกให้ชี้ไปที่ config ที่ต้องการ (production หรือแล็บ)
 
 ```powershell
-$cfg    = './config/prod.psd1'                     # หรือ ./config/lab.psd1
+$cfg    = './config/deploy.config.psd1'
 $c      = Import-PowerShellDataFile $cfg
 $rg     = $c.ResourceGroup
 $prefix = if ($c.NamePrefix) { $c.NamePrefix } else { 'tagGov' }
@@ -87,11 +87,11 @@ union traces, exceptions
 
 ## 2. เปลี่ยนค่า config (ผู้รับเมล, หยุดส่ง, SLA)
 
-ค่าทั้งหมดอยู่ในไฟล์ config ของคุณ (เช่น `config/prod.psd1`) **แก้ในไฟล์เสมอ** อย่าแก้ App settings ใน Portal เพราะการ deploy ครั้งถัดไปจะเขียนทับกลับ
+ค่าทั้งหมดอยู่ในไฟล์ `config/deploy.config.psd1` **แก้ในไฟล์เสมอ** อย่าแก้ App settings ใน Portal เพราะการ deploy ครั้งถัดไปจะเขียนทับกลับ
 
 1. แก้ค่าในไฟล์ config เช่น
    - เปลี่ยนผู้รับ: `MailTo`, `MailCc`, `MailCcEscalation`
-   - หยุดส่งเมลชั่วคราว: `MailEnabled = $false` (ระบบยังเก็บ snapshot ต่อ)
+   - หยุดส่งเมลชั่วคราว: `MailEnabled = $false` (ระบบยังเก็บ snapshot ต่อ) แล้ว deploy ด้วย `./scripts/deploy.ps1 -Part Infra`
    - เปลี่ยนจำนวนวันก่อนยกระดับ: `SlaDays`
 2. ส่งค่าขึ้น Azure (ไม่แตะโค้ด ใช้เวลาราว 2-3 นาที)
 
@@ -143,17 +143,17 @@ az policy state trigger-scan --resource-group <ชื่อ RG ที่แก�
 
 ```powershell
 git pull
-./scripts/deploy.ps1 -ConfigPath ./config/lab.psd1          # ใน lab.psd1 ควรตั้ง MailEnabled = $false และ EnableTestEndpoint = $true
+./scripts/deploy.ps1          # production ใช้ MailEnabled = $true; เปิด endpoint ทดสอบเฉพาะด้วย -Set
 ```
 
-แล้วรันคำสั่ง "ดูตัวอย่างเมล" ในหัวข้อ 3 กับแล็บ (เปลี่ยน `$cfg` ในหัวข้อ 0 เป็น `./config/lab.psd1`) ทดสอบเสร็จแล้วลบแล็บตามหัวข้อ 8
+แล้วรันคำสั่ง "ดูตัวอย่างเมล" ในหัวข้อ 3 กับ environment ที่ใช้ทดสอบ ทดสอบเสร็จแล้วลบ resource ตามหัวข้อ 8
 
 **ขั้นที่ 2 เลือกเวลา** อย่า deploy ช่วง **08:30-09:30 น. ของวันทำงานแรกของสัปดาห์** เพราะเป็นเวลาที่รอบส่งเมลทำงาน
 
 **ขั้นที่ 3 ดูก่อนว่าจะเปลี่ยนอะไร**
 
 ```powershell
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -PlanOnly
+./scripts/deploy.ps1 -PlanOnly
 ```
 
 อ่านผล what-if: `+ Create` และ `~ Modify` เป็นเรื่องปกติ **ถ้าเห็น `- Delete` หรือการ Replace storage account / Function / Key Vault ให้หยุด** และถามคนที่แก้โค้ดก่อน
@@ -161,8 +161,8 @@ git pull
 **ขั้นที่ 4 deploy**
 
 ```powershell
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1              # ทั้งโครงสร้างและโค้ด
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1 -Part Code   # หรือเฉพาะโค้ด ถ้าแก้แค่ไฟล์ใน function/
+./scripts/deploy.ps1              # ทั้งโครงสร้างและโค้ด
+./scripts/deploy.ps1 -Part Code   # หรือเฉพาะโค้ด ถ้าแก้แค่ไฟล์ใน function/
 ```
 
 ผลที่ถูกต้องต้องจบด้วย `พบ function: ...run_now, ...send_now, ...weekly_report`
@@ -174,7 +174,7 @@ git pull
 ```powershell
 git log --oneline -10                     # หา commit ก่อนหน้าที่ใช้งานได้
 git checkout <commit>
-./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1
+./scripts/deploy.ps1
 git checkout dev                          # กลับมา branch เดิมหลังถอยเสร็จ
 ```
 
@@ -208,13 +208,13 @@ az storage blob undelete --account-name $st --auth-mode key -c tag-governance -n
 az storage blob download-batch --account-name $st --auth-mode key -s tag-governance -d ./backup --overwrite true
 
 # 2) สร้าง config ใหม่ แล้ว deploy ที่ใหม่พร้อมคืน state
-Copy-Item ./config/prod.psd1 ./config/prod-new.psd1      # แก้ SubscriptionId / ResourceGroup / Tags
-./scripts/deploy.ps1 -ConfigPath ./config/prod-new.psd1 -RestoreFrom ./backup
+Copy-Item ./config/deploy.config.psd1 ./config/deploy.config-new.psd1      # แก้ SubscriptionId / ResourceGroup / Tags
+./scripts/deploy.ps1 -ConfigPath ./config/deploy.config-new.psd1 -RestoreFrom ./backup
 
 # 3) ตรวจที่ใหม่ (หัวข้อ 1 และ 3) แล้วลบที่เดิมตามหัวข้อ 8
 ```
 
-- ถ้าที่ใหม่อยู่คนละ subscription ผู้ deploy ต้องมีสิทธิ์ Owner หรือ User Access Administrator ที่นั่น (เพื่อมอบสิทธิ์ Reader) ถ้าไม่มีดู [DEPLOY.md](DEPLOY.md)
+- ถ้าที่ใหม่อยู่คนละ subscription ผู้ deploy ต้องมีสิทธิ์สร้าง role assignment ที่นั่น หาก deploy แจ้ง `AuthorizationFailed` ให้ผู้มีสิทธิ์ Owner หรือ User Access Administrator ช่วย แล้วรันใหม่ ดู [DEPLOY.md](DEPLOY.md)
 - ผู้ส่งเมล (`DoNotReply@...azurecomm.net`) จะเปลี่ยนเป็นที่อยู่ใหม่ แจ้งผู้รับให้เพิ่มเป็น safe sender อีกครั้ง
 - โฟลเดอร์ `backup/` มีข้อมูลจริง ห้าม commit (`.gitignore` กันไว้แล้ว) ลบทิ้งเมื่อย้ายเสร็จ
 

@@ -10,7 +10,7 @@
     "TG_MAIL_CC": "cloudsec.manager@example.com",
     "TG_MAIL_CC_ESCALATION": "csi.manager@example.com",
     "TG_RG_NAME_REGEX": "",
-    "TG_HTTP_ENABLED": "true",
+    "TG_HTTP_ENABLED": "false",
     "TG_MANUAL_SEND_ENABLED": "false",
     "TG_MAIL_SENDER": "DoNotReply@<your-domain>.azurecomm.net",
     "TG_ACS_CONNECTION_STRING": "endpoint=https://...;accesskey=...",

@@ -16,10 +16,11 @@
     }
 
     # ===== OPTIONAL (ลบเครื่องหมาย # ออกเมื่อต้องการเปลี่ยน ค่าที่แสดงคือค่าเริ่มต้น) =====
-    # MailEnabled              = $false   # $false = เก็บ snapshot อย่างเดียว ยังไม่ส่งอีเมล
+    MailEnabled              = $true    # พร้อม production: ส่งอีเมลตามรอบเมื่อมีรายการค้าง
     # MailCc                   = @()      # Cc ทุกฉบับ
     # MailCcEscalation         = @()      # Cc เพิ่มเฉพาะอีเมลที่มีรายการ Stage 2
     # SlaDays                  = 14       # จำนวนวันที่ค้างก่อนเข้า Stage 1
+    # MailMaxItems             = 10       # จำนวนรายการสูงสุดที่แสดงรายละเอียดในอีเมล
     # NamePrefix               = 'tagGov' # คำนำหน้าชื่อ resource (1-8 ตัวอักษร/ตัวเลข)
     # PolicyAssignmentName     = 'rg-tag-governance-audit'
     # ScanSubscriptionIds      = @()      # ว่าง = ทุก subscription ที่ Function อ่านได้
@@ -27,6 +28,6 @@
     # CreateAcsEmail           = $true    # $false = ใช้ ACS เดิม ต้องมี ExistingAcsSender และ env TG_ACS_CONNECTION_STRING
     # ExistingAcsSender        = ''
     # AssignSubscriptionReader = $true    # $false = admin มอบสิทธิ์ Reader เอง
-    # EnableTestEndpoint       = $false    # เปิดเฉพาะตอนทดสอบ
-    # EnableManualSend         = $false    # $true = เปิด POST /api/send ส่งเมลทันทีตอนไหนก็ได้
+    # EnableTestEndpoint       = $false   # production ควรปิด; เปิดชั่วคราวด้วย -Set เมื่อต้องทดสอบ
+    # EnableManualSend         = $false  # production ควรปิด; เปิดชั่วคราวเมื่อต้องการส่งเมลทันที
 }
