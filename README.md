@@ -22,7 +22,7 @@ repository นี้พัฒนาต่อจาก [`azure-policy-rg-vm-tag-g
 
 Azure Policy ตรวจสอบ tag ให้อยู่แล้ว แต่รายงานได้เพียงจำนวนรายการที่ไม่ผ่านในขณะนั้น ไม่ระบุว่าแต่ละรายการค้างมานานเท่าใด และไม่แจ้งเตือนผู้ที่เกี่ยวข้อง ระบบนี้จึงเพิ่มความสามารถ 3 ประการดังนี้
 
-1. **Dashboard** ผ่าน Workbook ซึ่งแสดงรายการที่ไม่ผ่านพร้อม tag ที่ขาดหรือผิด แยกตามสิ่งที่ Cloud team ต้องทำ (แก้ได้เลย / ถาม owner / หา owner ก่อน) และมีรายชื่อ owner ที่ export เป็นไฟล์ได้
+1. **Dashboard** ผ่าน Workbook ซึ่งแสดงรายการที่ไม่ผ่านพร้อม tag ที่ขาดหรือผิด และรายการ tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน
 2. **Age tracking** โดยบันทึกวันที่ตรวจพบรายการครั้งแรกไว้ใน Blob Storage
 3. **Age-based escalation** โดยส่งอีเมลสรุปรายสัปดาห์ และแจ้งผู้จัดการเพิ่มเมื่อรายการค้างเกินกำหนด
 
@@ -37,13 +37,11 @@ flowchart LR
     subgraph DEP["Resource Group ที่ deploy ด้วยโปรเจกต์นี้"]
         FN["Azure Function<br/>ทำงานวันทำงานแรกของสัปดาห์ 09:00"]
         ST[("Blob Storage<br/>state.json และ snapshots")]
-        WB["Workbook<br/>dashboard และรายชื่อ owner"]
+        WB["Workbook<br/>dashboard"]
         ACS["ACS Email"]
         LOG["Application Insights<br/>และ Log Analytics"]
     end
     MAIL["Weekly summary email<br/>To และ Cc"]
-    TEAM["ทีม Cloud<br/>Export รายชื่อ owner จาก Workbook"]
-    OWN["เจ้าของ resource<br/>รับอีเมลจากกล่องเมลของทีม"]
 
     POL --> ARG
     ARG -->|"Reader ผ่าน managed identity"| FN
@@ -52,8 +50,6 @@ flowchart LR
     FN --> ACS
     FN -.-> LOG
     ACS --> MAIL
-    WB --> TEAM
-    TEAM --> OWN
 ```
 
 | Component | Purpose |
@@ -62,11 +58,11 @@ flowchart LR
 | Azure Resource Graph | ช่องทางอ่านผลของ Policy พร้อมข้อมูล tag ของ RG และ VM โดย Function และ Workbook ใช้ query ที่มีตรรกะเดียวกัน ตัวเลขที่แสดงจึงสอดคล้องกัน |
 | Azure Function | เริ่มทำงานตามเวลาที่กำหนด ดึงรายการที่ไม่ผ่าน เปรียบเทียบกับ state เดิมเพื่อคำนวณ age และพิจารณาว่าจะส่งอีเมลหรือไม่ |
 | Blob Storage | เก็บ `state.json` (วันที่ตรวจพบครั้งแรกและสถานะ escalation) และ snapshot รายสัปดาห์เป็นหลักฐานย้อนหลัง |
-| Workbook | dashboard สำหรับเปิดดู และ export รายชื่อ owner เพื่อใช้ส่งอีเมลต่อ |
+| Workbook | dashboard สำหรับรายการที่ไม่ผ่านและ tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน |
 | ACS Email | ส่งอีเมลสรุปไปยังผู้รับที่กำหนด |
 | Application Insights และ Log Analytics | เก็บ log การทำงานของ Function |
 
-ระบบไม่ได้ส่งอีเมลถึงเจ้าของ resource แต่ละรายโดยอัตโนมัติ ทีม Cloud เป็นผู้ export รายชื่อจาก Workbook และส่งอีเมลจากกล่องเมลของทีม เนื่องจากจำนวนรายการอยู่ในระดับหลักสิบ และการส่งจากกล่องเมลของทีมทำให้เจ้าของ resource ตอบกลับผู้ส่งจริงได้ ลดปัญหาอีเมลถูกจัดเป็น Junk และไม่ต้องพัฒนากลไกส่งอีเมลถึงผู้รับจำนวนมากในโค้ด
+ระบบส่งอีเมลสรุปไปยังผู้รับที่กำหนดใน config โดยไม่แสดงรายชื่อ owner เป็นตารางใน Workbook
 
 ## Weekly workflow
 
@@ -104,7 +100,7 @@ flowchart LR
 
 อีเมลจะแสดงรายละเอียดสูงสุด 10 รายการเป็นค่าเริ่มต้น เพื่อให้อ่านง่าย โดยเลือกตามลำดับความสำคัญคือ Stage 2, Stage 1, รายการใหม่ และรายการทั่วไปตามลำดับ หากมีมากกว่านั้น ระบบยังนับและเก็บข้อมูลครบทุกแถวใน snapshot และ Workbook แต่จะแจ้งจำนวนที่เหลือพร้อมลิงก์ให้เปิดดูรายละเอียดทั้งหมด ค่าเพดานนี้ปรับได้ด้วย app setting `TG_MAIL_MAX_ITEMS` โดยต้องเป็นจำนวนเต็มตั้งแต่ 1 ขึ้นไป
 
-Workbook เดิมดึงรายการสดจาก Resource Graph จึงไม่มี `first_seen` และอายุของรายการ ส่วน endpoint `governance-status` ที่เพิ่มเข้ามาเป็นช่องทางอ่านสถานะ SLA จาก state จริงของ Function แบบ read-only โดยเปิดเป็นค่าเริ่มต้นสำหรับ production ให้ตั้ง `EnableSlaApi = $true` และเว้น `EntraAppClientId` ว่างได้: `deploy.ps1` จะค้นหาหรือสร้าง App Registration ชื่อ `<NamePrefix>-sla-api` ก่อน deploy Bicep แล้วใช้ Client ID ต่อให้ในรอบเดียว การสร้างต้องใช้สิทธิ์ Microsoft Entra สำหรับสร้าง application; ถ้า tenant ไม่อนุญาตให้สร้างอัตโนมัติ ให้ผู้ดูแลสร้าง App Registration แล้วใส่ Client ID ลง config แทน Easy Auth เปิด anonymous ที่ระดับ App เพื่อไม่กระทบ `/api/run` และ `/api/send`; endpoint `governance-status` ตรวจ Entra principal แยกเอง การเพิ่มตาราง Custom Endpoint ใน Workbook ให้ชี้ไปที่ output `slaApiUrl` ต้องทำหลังจากสร้าง App Registration และทดสอบการส่ง Entra token จาก portal สำเร็จแล้ว
+Workbook ใช้ Azure Resource Graph แสดงรายการที่ไม่ผ่าน policy และรายการ tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน ส่วน `state.json` ใน Blob ใช้เก็บ `first_seen`, `escalated_at` และข้อมูลสำหรับคำนวณ escalation ของอีเมล ไม่เปิด API หรือ App Registration เพิ่ม
 
 ## Email recipients
 

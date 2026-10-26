@@ -36,7 +36,7 @@
 |---|---|
 | สร้าง Resource Group ใหม่ | Contributor ระดับ subscription |
 | สร้าง resource ใน Resource Group เดิม | Contributor บน Resource Group นั้น |
-| มอบสิทธิ์ Reader และ Key Vault ให้ Function | Owner หรือ User Access Administrator ที่ subscription |
+| มอบสิทธิ์ Reader และ Key Vault ให้ Function | ใช้สิทธิ์ของผู้ deploy โดยอัตโนมัติ; หาก deploy แจ้ง `AuthorizationFailed` ต้องให้ Owner หรือ User Access Administrator ช่วย |
 
 หากไม่มีสิทธิ์ข้อสุดท้าย ให้ administrator ช่วย deploy
 
@@ -75,7 +75,6 @@ Copy-Item config/deploy.config.example.psd1 config/deploy.config.psd1
     MailCc            = @()                              # Cc ทุกฉบับ (ไม่บังคับ)
     MailCcEscalation  = @('<manager-email>')             # Cc เพิ่มเมื่อมีรายการค้างเกินกำหนดสองรอบ
     MailEnabled       = $true                            # พร้อม production: ส่งอีเมลตามรอบเมื่อมีรายการค้าง
-    EnableSlaApi      = $true                            # เปิด API สถานะ SLA และจัดการ App Registration อัตโนมัติ
 }
 ```
 
@@ -161,11 +160,9 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 | `MailCcEscalation` | No | `@()` | Cc เพิ่มเติมเฉพาะอีเมลที่มีรายการ Stage 2 | `TG_MAIL_CC_ESCALATION` |
 | `CreateAcsEmail` | No | `$true` | `$true` คือสร้าง ACS Email ใหม่ `$false` คือใช้ ACS เดิม | `TG_MAIL_SENDER`, `TG_ACS_CONNECTION_STRING` |
 | `ExistingAcsSender` | เมื่อ `CreateAcsEmail = $false` | ว่าง | ที่อยู่ผู้ส่งของ ACS เดิม | `TG_MAIL_SENDER` |
-| `AssignSubscriptionReader` | No | `$true` | ให้สคริปต์มอบสิทธิ์ Reader แก่ Function | - |
+| `AssignSubscriptionReader` | No | `$true` | ให้สคริปต์มอบสิทธิ์ Reader แก่ Function โดยอัตโนมัติ; ใช้ `$false` เฉพาะกรณีองค์กรไม่อนุญาตให้ deploy มอบสิทธิ์ |
 | `EnableTestEndpoint` | No | `$false` | เปิด endpoint `/api/run` สำหรับทดสอบ | `TG_HTTP_ENABLED` |
 | `EnableManualSend` | No | `$false` | เปิด endpoint `POST /api/send` สำหรับส่งอีเมลรายงานทันทีตอนไหนก็ได้ | `TG_MANUAL_SEND_ENABLED` |
-| `EnableSlaApi` | No | `$true` | เปิด API สถานะ SLA และเตรียม Entra App Registration อัตโนมัติ | `TG_SLA_API_ENABLED` |
-| `EntraAppClientId` | No | ว่าง | Client ID ของ App Registration; เมื่อเปิด SLA API สคริปต์จะค้นหาหรือสร้างและบันทึกให้ | `TG_SLA_API_CLIENT_ID` |
 
 ข้อควรทราบ
 
@@ -206,7 +203,7 @@ Invoke-RestMethod -Headers @{ "x-functions-key" = $key } "https://$fn.azurewebsi
 
 ตัวอย่างในเอกสารนี้ใช้ `Invoke-RestMethod` ซึ่งเป็นคำสั่งของ PowerShell เอง ใช้ได้ทั้ง Windows PowerShell 5.1 และ PowerShell 7 และต่อ `| ConvertTo-Json -Depth 6` เพื่อให้เห็นผลเป็น JSON ครบทุกระดับ (ถ้าไม่ต่อ ค่าที่เป็น list จะแสดงเป็น `System.Object[]`) ไม่ควรใช้ `curl` ใน Windows PowerShell 5.1 เพราะเป็น alias ของ `Invoke-WebRequest` ซึ่งไม่รู้จัก option ของ curl เช่น `-X POST` หากต้องการ curl จริงให้พิมพ์ `curl.exe`
 
-ผลที่ถูกต้องมี `"status": "ok"` พร้อม `summary` (จำนวนรายการ) และตัวอย่างอีเมลที่ระบบจะส่ง (เมื่อมีรายการค้าง)
+ผลที่ถูกต้องมี `"status": "ok"` พร้อม `summary` (จำนวนรายการ) และตัวอย่างอีเมลที่ระบบจะส่ง (เมื่อมีรายการค้าง) จากนั้นเปิด Workbook แล้วดู 2 ตารางหลัก: รายการที่ไม่ผ่าน และ tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน
 
 | Parameter | Description |
 |---|---|
@@ -253,7 +250,7 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 |---|---|
 | สคริปต์แจ้งว่า `az login` อยู่คนละ subscription | ใช้ `az account set --subscription <id>` |
 | Bicep compile ไม่ผ่าน หรือ crash | Bicep เก่าเกินไป รัน `az bicep upgrade` |
-| `AuthorizationFailed` ขณะมอบสิทธิ์ Reader หรือ Key Vault | ไม่มีสิทธิ์ Owner หรือ User Access Administrator ให้ administrator deploy |
+| `AuthorizationFailed` ขณะ deploy | ผู้ deploy ไม่มีสิทธิ์สร้าง role assignment หรือ resource ให้ผู้มีสิทธิ์ระดับ Owner/User Access Administrator ช่วย แล้วรันใหม่ |
 | `TG_ACS_CONNECTION_STRING` ขึ้นเครื่องหมายแดง | สิทธิ์ยังไม่แพร่กระจาย รอ 2-3 นาที แล้วรีสตาร์ต Function App |
 | ชื่อ resource ซ้ำ | เปลี่ยน `NamePrefix` |
 | deploy ใหม่ชนชื่อ Key Vault หรือ Log Analytics | ของเก่าค้างใน soft-delete รัน `teardown.ps1` ซึ่ง purge ให้ หรือเปลี่ยน `NamePrefix` |

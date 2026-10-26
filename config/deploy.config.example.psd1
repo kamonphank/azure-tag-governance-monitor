@@ -30,6 +30,4 @@
     # AssignSubscriptionReader = $true    # $false = admin มอบสิทธิ์ Reader เอง
     # EnableTestEndpoint       = $false   # production ควรปิด; เปิดชั่วคราวด้วย -Set เมื่อต้องทดสอบ
     # EnableManualSend         = $false  # production ควรปิด; เปิดชั่วคราวเมื่อต้องการส่งเมลทันที
-    EnableSlaApi              = $true    # พร้อม production: ค้นหาหรือสร้าง App Registration และเปิด API สถานะ SLA
-    # EntraAppClientId          = ''      # เว้นว่างได้เมื่อ EnableSlaApi = $true; script จะจัดการให้ในรอบเดียว
 }

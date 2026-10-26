@@ -143,7 +143,7 @@ az policy state trigger-scan --resource-group <ชื่อ RG ที่แก�
 
 ```powershell
 git pull
-./scripts/deploy.ps1          # production ใช้ MailEnabled = $true และ EnableSlaApi = $true; เปิด endpoint ทดสอบเฉพาะด้วย -Set
+./scripts/deploy.ps1          # production ใช้ MailEnabled = $true; เปิด endpoint ทดสอบเฉพาะด้วย -Set
 ```
 
 แล้วรันคำสั่ง "ดูตัวอย่างเมล" ในหัวข้อ 3 กับ environment ที่ใช้ทดสอบ ทดสอบเสร็จแล้วลบ resource ตามหัวข้อ 8
@@ -214,7 +214,7 @@ Copy-Item ./config/deploy.config.psd1 ./config/deploy.config-new.psd1      # แ
 # 3) ตรวจที่ใหม่ (หัวข้อ 1 และ 3) แล้วลบที่เดิมตามหัวข้อ 8
 ```
 
-- ถ้าที่ใหม่อยู่คนละ subscription ผู้ deploy ต้องมีสิทธิ์ Owner หรือ User Access Administrator ที่นั่น (เพื่อมอบสิทธิ์ Reader) ถ้าไม่มีดู [DEPLOY.md](DEPLOY.md)
+- ถ้าที่ใหม่อยู่คนละ subscription ผู้ deploy ต้องมีสิทธิ์สร้าง role assignment ที่นั่น หาก deploy แจ้ง `AuthorizationFailed` ให้ผู้มีสิทธิ์ Owner หรือ User Access Administrator ช่วย แล้วรันใหม่ ดู [DEPLOY.md](DEPLOY.md)
 - ผู้ส่งเมล (`DoNotReply@...azurecomm.net`) จะเปลี่ยนเป็นที่อยู่ใหม่ แจ้งผู้รับให้เพิ่มเป็น safe sender อีกครั้ง
 - โฟลเดอร์ `backup/` มีข้อมูลจริง ห้าม commit (`.gitignore` กันไว้แล้ว) ลบทิ้งเมื่อย้ายเสร็จ
 

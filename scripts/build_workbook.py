@@ -25,12 +25,12 @@ KIND_RG = 'resource_kind == "Resource Group"'
 KIND_VM = 'resource_kind == "Virtual Machine"'
 
 
-def _arg(query: str, title: str = "", **extra) -> dict:
+def _arg(query: str, title: str = "", resource_type: str = "microsoft.resourcegraph/resources", **extra) -> dict:
     content = {
         "version": "KqlItem/1.0",
         "query": query,
         "queryType": 1,
-        "resourceType": "microsoft.resourcegraph/resources",
+        "resourceType": resource_type,
         "crossComponentResources": ["{Subscription}"],
     }
     if title:
@@ -126,20 +126,6 @@ def build() -> dict:
         + f'| extend who_order = {WHO_ORDER}, rg_col = iff({KIND_RG}, "", rg_name)\n'
         + "| order by who_order asc, resource_kind asc, resource_name asc\n"
         + "| project azure_id, resource_kind, rg_col, who, detail, owner_value, evaluated_at"
-    )
-
-    owners_q = (
-        base
-        + f'| where who != "{WHO_PENDING}"\n'
-        + '| extend entry = strcat(iff(' + KIND_RG + ', "RG ", "VM "), resource_name, " (", detail, ")")\n'
-        + '| mv-expand owner = split(owner_value, ",")\n'
-        + '| extend owner = trim(@"\\s+", tostring(owner))\n'
-        + '| where owner != "" and owner !~ "nan"\n'
-        + "| summarize n = dcount(resource_id), entries = make_set(entry) by owner\n"
-        + '| extend email_ok = iff(owner matches regex @"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", "ใช่", "ไม่ใช่ (ตรวจ tag)")\n'
-        + '| extend ok_order = iff(email_ok == "ใช่", 1, 0)\n'
-        + '| order by ok_order asc, n desc, owner asc\n'
-        + '| project owner, email_ok, n, entries = array_strcat(entries, "  ·  ")'
     )
 
     # Azure Policy compliance ไม่ได้ช่วยหา key ที่ตัวพิมพ์ต่างจากมาตรฐานในบางกรณี
@@ -333,51 +319,6 @@ def build() -> dict:
                     },
                 ),
                 "name": "query - casing",
-            },
-            _text(
-                "text - owners",
-                "## รายชื่อ owner สำหรับส่งเมล\n"
-                "1 แถวต่อคน · owner ที่คั่นด้วยจุลภาคถูกแยกรายคน · ค่าว่างและ `nan` ไม่อยู่ในตารางนี้ (อยู่ในกลุ่ม หา owner ก่อน) · "
-                "กด Export to Excel มุมขวาของตารางเพื่อนำไปส่งจากกล่องเมลทีม",
-            ),
-            {
-                "type": 3,
-                "content": _arg(
-                    owners_q,
-                    size=3,
-                    visualization="table",
-                    showExportToExcel=True,
-                    exportToExcelOptions="visible",
-                    noDataMessage="ไม่มี owner ที่ต้องติดต่อ",
-                    gridSettings={
-                        "rowLimit": 1000,
-                        "filter": True,
-                        "formatters": [
-                            _width("owner", "30ch"),
-                            {
-                                "columnMatch": "email_ok",
-                                "formatter": 18,
-                                "formatOptions": {
-                                    "customColumnWidthSetting": "18ch",
-                                    "thresholdsOptions": "colors",
-                                    "thresholdsGrid": [
-                                        {"operator": "==", "thresholdValue": "ใช่", "representation": "transparent", "text": "{0}{1}"},
-                                        {"operator": "Default", "thresholdValue": None, "representation": "redBright", "text": "{0}{1}"},
-                                    ],
-                                },
-                            },
-                            _width("n", "12ch"),
-                            _width("entries", "120ch"),
-                        ],
-                        "labelSettings": [
-                            {"columnId": "owner", "label": "owner"},
-                            {"columnId": "email_ok", "label": "อีเมลใช้ได้"},
-                            {"columnId": "n", "label": "จำนวน"},
-                            {"columnId": "entries", "label": "รายการและสิ่งที่ไม่ผ่าน"},
-                        ],
-                    },
-                ),
-                "name": "query - owners",
             },
         ],
         "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json",

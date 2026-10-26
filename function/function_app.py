@@ -50,20 +50,6 @@ def run_now(req: func.HttpRequest) -> func.HttpResponse:
     return _json_response(result)
 
 
-@app.route(route="governance-status", auth_level=func.AuthLevel.ANONYMOUS, methods=["GET"])
-def governance_status(req: func.HttpRequest) -> func.HttpResponse:
-    """Read-only SLA data source for an authenticated Workbook/custom endpoint."""
-    if not runner.sla_api_enabled():
-        return func.HttpResponse("not found", status_code=404)
-    if not req.headers.get("X-MS-CLIENT-PRINCIPAL"):
-        return func.HttpResponse("authentication required", status_code=401)
-    try:
-        return _json_response(runner.read_sla_status())
-    except Exception as e:
-        logging.exception("governance_status failed")
-        return func.HttpResponse(f"{type(e).__name__}: {e}", status_code=500, mimetype="text/plain; charset=utf-8")
-
-
 # ส่งเมลรายงานทันทีตอนไหนก็ได้ (ไม่ต้องรอวันทำงานแรกของสัปดาห์): POST /api/send  (ต้องมี function key)
 # ปิดเป็นค่าเริ่มต้น: ตั้ง TG_MANUAL_SEND_ENABLED=true เพื่อเปิด และยังเคารพ TG_MAIL_ENABLED
 # ไม่บันทึก state/snapshot เพื่อไม่ให้การส่งนอกรอบเลื่อนรอบ escalation (ขั้น 1 -> ขั้น 2) ของรายงานประจำสัปดาห์
