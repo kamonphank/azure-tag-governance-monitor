@@ -26,6 +26,11 @@ def manual_send_enabled() -> bool:
     return os.environ.get("TG_MANUAL_SEND_ENABLED", "false").strip().lower() in ("true", "1", "yes")
 
 
+def sla_api_enabled() -> bool:
+    """เปิด endpoint อ่านสถานะ SLA เมื่อ Function App ตั้งค่า authentication แล้ว"""
+    return os.environ.get("TG_SLA_API_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+
+
 def today_th() -> date:
     return datetime.now(TZ).date()
 
@@ -87,3 +92,50 @@ def run(
         store.put("state.json", new_state)
         store.put(f"snapshots/{today.isoformat()}.json", {"date": today.isoformat(), "items": items, "summary": summary})
     return result
+
+
+def read_sla_status() -> dict:
+    """อ่านสถานะ SLA ปัจจุบันโดยไม่แก้ state หรือส่งเมล"""
+    from azure.identity import DefaultAzureCredential
+    from .queries import fetch_items
+    from .store import BlobStore
+
+    today = today_th()
+    sla = int(os.environ.get("TG_SLA_DAYS", core.SLA_DAYS_DEFAULT))
+    items = fetch_items(
+        DefaultAzureCredential(),
+        os.environ.get("TG_ASSIGNMENT_NAME", "rg-tag-governance-audit"),
+        _split(os.environ.get("TG_SUBSCRIPTION_IDS", "")),
+    )
+    items = filter_scope(items, os.environ.get("TG_RG_NAME_REGEX", ""))
+    store = BlobStore(os.environ["AzureWebJobsStorage"])
+    state = store.get("state.json") or core.empty_state()
+    aged = core.with_age(items, state, today)
+    rows = []
+    for item in aged:
+        if item.get("who") == core.WHO_PENDING:
+            stage = "รอ Policy ตรวจซ้ำ"
+        elif item["age_days"] < sla:
+            stage = "ปกติ"
+        elif state["items"].get(item["resource_id"], {}).get("escalated_at"):
+            stage = "Stage 2"
+        else:
+            stage = "Stage 1"
+        rows.append(
+            {
+                "resource_id": item["resource_id"],
+                "azure_id": item.get("azure_id", ""),
+                "resource_kind": item.get("kind", ""),
+                "resource_name": item.get("name", ""),
+                "rg_name": item.get("rg_name", ""),
+                "who": item.get("who", ""),
+                "detail": item.get("detail", ""),
+                "owner_value": item.get("owner_value", ""),
+                "first_seen": item["first_seen"],
+                "age_days": item["age_days"],
+                "sla_days": sla,
+                "sla_stage": stage,
+                "evaluated_at": item.get("evaluated_at", ""),
+            }
+        )
+    return {"date": today.isoformat(), "sla_days": sla, "items": rows}

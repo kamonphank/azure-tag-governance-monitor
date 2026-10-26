@@ -21,11 +21,12 @@
   ./scripts/deploy.ps1 -PlanOnly          # ดูก่อน ไม่แก้อะไร
   ./scripts/deploy.ps1                    # deploy จริง (มีถามยืนยัน)
   ./scripts/deploy.ps1 -Part Code         # แก้โค้ดแล้วส่งซ้ำ
-  ./scripts/deploy.ps1 -ConfigPath ./config/prod.psd1
+  ./scripts/deploy.ps1
   ./scripts/deploy.ps1 -Set @{ ResourceGroup = 'rg-lab'; MailEnabled = $false }   # ทับบางค่า
 
 ต้องมี: PowerShell 5.1 หรือ 7+, Azure CLI (az) ที่ login แล้ว, สิทธิ์ Contributor บน RG
         (และ Owner / User Access Administrator ที่ subscription ถ้า AssignSubscriptionReader = $true)
+        (และสิทธิ์ Microsoft Entra สำหรับสร้าง application ถ้า EnableSlaApi = $true และ EntraAppClientId ว่าง)
 #>
 [CmdletBinding()]
 param(
@@ -63,11 +64,22 @@ if ($RestoreFrom -and -not (Test-Path (Join-Path $RestoreFrom 'state.json'))) {
 
 $known = @('SubscriptionId', 'ResourceGroup', 'Location', 'Tags', 'ResourceGroupTags', 'NamePrefix', 'PolicyAssignmentName',
   'ScanSubscriptionIds', 'RgNameRegex', 'SlaDays', 'MailEnabled', 'MailTo', 'MailCc', 'MailCcEscalation',
-  'CreateAcsEmail', 'ExistingAcsSender', 'AssignSubscriptionReader', 'EnableTestEndpoint', 'EnableManualSend')
+  'MailMaxItems', 'CreateAcsEmail', 'ExistingAcsSender', 'AssignSubscriptionReader', 'EnableTestEndpoint', 'EnableManualSend',
+  'EnableSlaApi', 'EntraAppClientId')
 foreach ($k in $cfg.Keys) { if ($known -notcontains $k) { Fail "config มี key ที่ไม่รู้จัก '$k' (พิมพ์ผิดหรือเปล่า) key ที่ใช้ได้: $($known -join ', ')" } }
 
 function Cfg($key, $default) { if ($cfg.ContainsKey($key) -and $null -ne $cfg[$key]) { $cfg[$key] } else { $default } }
 function AsList($v) { @($v) | Where-Object { $_ -and "$_".Trim() } | ForEach-Object { "$_".Trim() } }
+function Save-GeneratedClientId($clientId) {
+  if (-not (Test-Path $ConfigPath)) { return }
+  $raw = Get-Content -LiteralPath $ConfigPath -Raw
+  $replacement = "EntraAppClientId          = '$clientId'"
+  $updated = [regex]::Replace($raw, "(?m)^\s*EntraAppClientId\s*=\s*['""]{2}\s*(?:#.*)?$", $replacement, 1)
+  if ($updated -eq $raw) {
+    $updated = $raw.TrimEnd() + "`r`n`r`n    $replacement`r`n"
+  }
+  Set-Content -LiteralPath $ConfigPath -Value $updated -Encoding UTF8
+}
 $guidRx = '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$'
 $mailRx = '^[^@\s]+@[^@\s]+\.[^@\s]+$'
 $errors = New-Object System.Collections.Generic.List[string]
@@ -92,6 +104,8 @@ $scanIds = AsList (Cfg 'ScanSubscriptionIds' @())
 foreach ($s in $scanIds) { if ($s -notmatch $guidRx) { $errors.Add("ScanSubscriptionIds มีค่าที่ไม่ใช่ GUID: '$s'") } }
 $sla = [int](Cfg 'SlaDays' 14)
 if ($sla -lt 1) { $errors.Add('SlaDays ต้องมากกว่า 0') }
+$mailMaxItems = [int](Cfg 'MailMaxItems' 10)
+if ($mailMaxItems -lt 1) { $errors.Add('MailMaxItems ต้องมากกว่า 0') }
 $rgRegex = "$(Cfg 'RgNameRegex' '')"
 if ($rgRegex) { try { [void][regex]::new($rgRegex) } catch { $errors.Add("RgNameRegex ไม่ใช่ regex ที่ถูกต้อง: $rgRegex") } }
 $createAcs = [bool](Cfg 'CreateAcsEmail' $true)
@@ -105,10 +119,15 @@ if (-not $createAcs) {
 }
 if ($errors.Count -gt 0) { Fail ("config ไม่ถูกต้อง:`n  - " + ($errors -join "`n  - ")) }
 
-$mailEnabled = [bool](Cfg 'MailEnabled' $false)
+$mailEnabled = [bool](Cfg 'MailEnabled' $true)
 $assignReader = [bool](Cfg 'AssignSubscriptionReader' $true)
 $testEndpoint = [bool](Cfg 'EnableTestEndpoint' $false)
 $manualSend = [bool](Cfg 'EnableManualSend' $false)
+$enableSlaApi = [bool](Cfg 'EnableSlaApi' $true)
+$entraAppClientId = "$(Cfg 'EntraAppClientId' '')"
+if ($enableSlaApi -and $entraAppClientId -and $entraAppClientId -notmatch $guidRx) {
+  $errors.Add('EnableSlaApi = $true ต้องระบุ EntraAppClientId เป็น GUID ของ App Registration')
+}
 # Tags ใส่ให้ RG ที่สร้างใหม่และทุก resource ของโปรเจกต์ (ResourceGroupTags คือชื่อเดิม ยังใช้ได้)
 $tagCfg = Cfg 'Tags' (Cfg 'ResourceGroupTags' @{})
 $tagMap = [ordered]@{}
@@ -126,6 +145,35 @@ Info "ผู้ใช้:        $($acct.user.name)"
 Info "Subscription: $($acct.name) ($($acct.id))"
 if ($acct.id -ne $subId) {
   Fail "az login อยู่คนละ subscription กับใน config`n    ตอนนี้: $($acct.id)`n    config:  $subId`n    สลับด้วย:  az account set --subscription $subId   แล้วรันใหม่"
+}
+
+# ---------- 2.5) เตรียม Entra App Registration สำหรับ SLA API ----------
+# สร้าง/ค้นหาตาม display name ก่อน deploy Bicep เพื่อให้ deploy รอบเดียวได้
+if ($enableSlaApi -and -not $entraAppClientId) {
+  $slaAppName = "$(Cfg 'NamePrefix' 'tagGov')-sla-api"
+  Step "เตรียม Entra App Registration '$slaAppName'"
+  $existingApp = (& az ad app list --display-name $slaAppName --query "[0].appId" -o tsv 2>$null)
+  if ($LASTEXITCODE -eq 0 -and $existingApp) {
+    $entraAppClientId = "$existingApp".Trim()
+    Info "พบ App Registration เดิม: $entraAppClientId"
+  } elseif ($PlanOnly) {
+    Fail "ยังไม่พบ App Registration '$slaAppName'; PlanOnly จะไม่สร้างให้ รัน deploy จริงหนึ่งครั้งเพื่อให้ script สร้างอัตโนมัติ"
+  } else {
+    Info 'ไม่พบ App Registration เดิม -> กำลังสร้างใหม่'
+    $entraAppClientId = (& az ad app create --display-name $slaAppName --sign-in-audience AzureADMyOrg --query appId -o tsv)
+    if ($LASTEXITCODE -ne 0 -or -not $entraAppClientId) {
+      Fail 'สร้าง App Registration ไม่สำเร็จ ต้องมีสิทธิ์ Microsoft Entra สำหรับสร้าง application (เช่น Application Administrator) หรือให้ผู้ดูแลสร้างให้ก่อน'
+    }
+    $entraAppClientId = "$entraAppClientId".Trim()
+    & az ad sp create --id $entraAppClientId | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      Fail "สร้าง service principal สำหรับ App Registration ไม่สำเร็จ ($entraAppClientId)"
+    }
+    Info "สร้าง App Registration สำเร็จ: $entraAppClientId"
+  }
+  $cfg['EntraAppClientId'] = $entraAppClientId
+  Save-GeneratedClientId $entraAppClientId
+  Info "บันทึก EntraAppClientId ลง $ConfigPath แล้ว"
 }
 
 # ---------- 3) ตรวจ Resource Group ----------
@@ -185,9 +233,10 @@ function Write-ParamFile {
   $p = [ordered]@{
     mailTo = ($mailTo -join ','); mailCc = ($mailCc -join ','); mailCcEscalation = ($mailCcEsc -join ',')
     namePrefix = $prefix; assignmentName = "$(Cfg 'PolicyAssignmentName' 'rg-tag-governance-audit')"
-    subscriptionIds = ($scanIds -join ','); rgNameRegex = $rgRegex; slaDays = $sla
+    subscriptionIds = ($scanIds -join ','); rgNameRegex = $rgRegex; slaDays = $sla; mailMaxItems = $mailMaxItems
     mailEnabled = $mailEnabled; createAcs = $createAcs; assignSubscriptionReader = $assignReader
     enableTestEndpoint = $testEndpoint; enableManualSend = $manualSend
+    enableSlaApi = $enableSlaApi; entraAppClientId = $entraAppClientId
     tags = $tagMap
   }
   if (-not $createAcs) { $p.acsConnectionString = $acsConn; $p.mailSender = $acsSender }
@@ -307,7 +356,31 @@ try {
 
   # ---------- 7) ขั้นถัดไป ----------
   Step 'เสร็จแล้ว - ขั้นตอนถัดไป'
-  Write-Host @"
+  $next = @(
+    "1) ถ้า AssignSubscriptionReader = `$false (หรือสิทธิ์ไม่พอ) ให้ admin รัน:"
+    "   az role assignment create --assignee-object-id <principalId> --assignee-principal-type ServicePrincipal --role Reader --scope /subscriptions/$subId"
+    "   (principalId ดูได้จาก: az functionapp identity show -g $rg -n $funcName --query principalId -o tsv)"
+    ""
+    "2) ทดสอบ dry-run (ไม่ส่งเมลและไม่บันทึก state):"
+    "   `$key = az functionapp function-keys list -g $rg -n $funcName --function-name run_now --query default -o tsv"
+  )
+  if ($enableSlaApi) {
+    $next += "   Invoke-RestMethod -Headers @{ `"x-functions-key`" = `$key } `"https://$funcName.azurewebsites.net/api/run?dry_run=1&force=1`" | ConvertTo-Json -Depth 6"
+    $next += ""
+    $next += "   อ่านสถานะ SLA จาก state จริง:"
+    $next += "   `$token = az account get-access-token --resource api://$entraAppClientId --query accessToken -o tsv"
+    $next += "   Invoke-RestMethod -Headers @{ Authorization = `"Bearer `$token`" } `"https://$funcName.azurewebsites.net/api/governance-status`" | ConvertTo-Json -Depth 10"
+  } else {
+    $next += "   Invoke-RestMethod -Headers @{ `"x-functions-key`" = `$key } `"https://$funcName.azurewebsites.net/api/run?dry_run=1&force=1`" | ConvertTo-Json -Depth 6"
+  }
+  $next += ""
+  $next += "   ไม่ต้องเปิด TG_HTTP_ENABLED เพิ่ม เพราะค่าจาก config ถูก deploy แล้ว"
+  $next += ""
+  $next += "3) เปิด Workbook: Azure Portal > Monitor > Workbooks > Shared > `"Tag Governance`""
+  $next += "4) เมื่อพร้อมส่งเมลจริง: ตั้ง MailEnabled = `$true ใน config แล้วรัน ./scripts/deploy.ps1 -Part Infra"
+  $next += "5) ส่งเมลทันทีนอกรอบ (ถ้าจำเป็น): ตั้ง EnableManualSend = `$true ใน config แล้ว deploy ใหม่ก่อนเรียก /api/send ด้วย Function key"
+  $next | ForEach-Object { Write-Host $_ }
+<#
 1) ถ้า AssignSubscriptionReader = `$false (หรือสิทธิ์ไม่พอ) ให้ admin รัน:
    az role assignment create --assignee-object-id <principalId> --assignee-principal-type ServicePrincipal --role Reader --scope /subscriptions/$subId
    (principalId ดูได้จาก:  az functionapp identity show -g $rg -n $funcName --query principalId -o tsv)
@@ -315,7 +388,12 @@ try {
 2) ทดสอบ (ต้องเปิด endpoint ทดสอบก่อน):
    az functionapp config appsettings set -g $rg -n $funcName --settings TG_HTTP_ENABLED=true -o none
    `$key = az functionapp function keys list -g $rg -n $funcName --function-name run_now --query default -o tsv
-   Invoke-RestMethod -Headers @{ "x-functions-key" = `$key } "https://$funcName.azurewebsites.net/api/run?dry_run=1&force=1" | ConvertTo-Json -Depth 6
+$(if ($enableSlaApi) {
+'   `$token = az account get-access-token --resource api://' + $entraAppClientId + ' --query accessToken -o tsv
+   Invoke-RestMethod -Headers @{ Authorization = "Bearer `$token"; "x-functions-key" = `$key } "https://' + $funcName + '.azurewebsites.net/api/run?dry_run=1&force=1" | ConvertTo-Json -Depth 6'
+} else {
+'   Invoke-RestMethod -Headers @{ "x-functions-key" = `$key } "https://' + $funcName + '.azurewebsites.net/api/run?dry_run=1&force=1" | ConvertTo-Json -Depth 6'
+})
    ... ทดสอบเสร็จแล้วปิดกลับ:
    az functionapp config appsettings set -g $rg -n $funcName --settings TG_HTTP_ENABLED=false -o none
 
@@ -324,7 +402,7 @@ try {
 5) ส่งเมลทันทีนอกรอบ (ต้องตั้ง EnableManualSend = `$true):
    `$key = az functionapp function keys list -g $rg -n $funcName --function-name send_now --query default -o tsv
    Invoke-RestMethod -Method Post -Headers @{ "x-functions-key" = `$key } "https://$funcName.azurewebsites.net/api/send" | ConvertTo-Json -Depth 6
-"@
+"@ #>
 }
 finally {
   if ($paramFile -and (Test-Path $paramFile)) { Remove-Item $paramFile -Force }   # ไฟล์นี้อาจมี connection string

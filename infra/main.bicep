@@ -26,6 +26,12 @@ param enableTestEndpoint bool = false
 @description('เปิด endpoint POST /api/send สำหรับส่งเมลรายงานทันทีตอนไหนก็ได้ไหม (ไม่บันทึก state จึงไม่กระทบรอบ escalation)')
 param enableManualSend bool = false
 
+@description('เปิด read-only SLA API สำหรับ Workbook เมื่อกำหนด Entra App Registration แล้ว')
+param enableSlaApi bool = true
+
+@description('Application (client) ID ของ Entra App Registration ที่ใช้กับ SLA API')
+param entraAppClientId string = ''
+
 @description('ชื่อ Policy assignment ที่ใช้ตรวจ')
 param assignmentName string = 'rg-tag-governance-audit'
 
@@ -34,6 +40,10 @@ param subscriptionIds string = ''
 
 @description('ค้างครบกี่วันถึงยกระดับ')
 param slaDays int = 14
+
+@description('จำนวนรายการสูงสุดที่แสดงรายละเอียดในอีเมล')
+@minValue(1)
+param mailMaxItems int = 10
 
 @description('สร้าง Azure Communication Services Email ใหม่ไหม (false = ใช้ของที่มีอยู่ ต้องใส่ acsConnectionString และ mailSender)')
 param createAcs bool = true
@@ -232,6 +242,7 @@ resource func 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'TG_ASSIGNMENT_NAME', value: assignmentName }
         { name: 'TG_SUBSCRIPTION_IDS', value: subscriptionIds }
         { name: 'TG_SLA_DAYS', value: string(slaDays) }
+        { name: 'TG_MAIL_MAX_ITEMS', value: string(mailMaxItems) }
         { name: 'TG_MAIL_ENABLED', value: string(mailEnabled) }
         { name: 'TG_MAIL_TO', value: mailTo }
         { name: 'TG_MAIL_CC', value: mailCc }
@@ -239,6 +250,7 @@ resource func 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'TG_RG_NAME_REGEX', value: rgNameRegex }
         { name: 'TG_HTTP_ENABLED', value: string(enableTestEndpoint) }
         { name: 'TG_MANUAL_SEND_ENABLED', value: string(enableManualSend) }
+        { name: 'TG_SLA_API_ENABLED', value: string(enableSlaApi) }
         { name: 'TG_MAIL_SENDER', value: sender }
         { name: 'TG_ACS_CONNECTION_STRING', value: '@Microsoft.KeyVault(SecretUri=${acsSecret.properties.secretUri})' }
         { name: 'TG_WORKBOOK_URL', value: workbookUrl }
@@ -246,6 +258,29 @@ resource func 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'WEBSITE_RUN_FROM_PACKAGE', value: runFromPackage }
       ])
     }
+
+  }
+}
+
+resource authSettings 'Microsoft.Web/sites/config@2022-03-01' = if (enableSlaApi) {
+  parent: func
+  name: 'authsettingsV2'
+  properties: {
+    platform: { enabled: true }
+    globalValidation: {
+      unauthenticatedClientAction: 'AllowAnonymous'
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        enabled: true
+        registration: {
+          clientId: entraAppClientId
+          openIdIssuer: '${environment().authentication.loginEndpoint}/${subscription().tenantId}/v2.0'
+        }
+        validation: { allowedAudiences: [ 'api://${entraAppClientId}', 'https://${func.properties.defaultHostName}' ] }
+      }
+    }
+    login: { tokenStore: { enabled: true } }
   }
 }
 
@@ -271,3 +306,4 @@ output functionPrincipalId string = func.identity.principalId
 output mailSender string = sender
 output workbookName string = workbook.properties.displayName
 output workbookResourceId string = workbook.id
+output slaApiUrl string = 'https://${func.properties.defaultHostName}/api/governance-status'

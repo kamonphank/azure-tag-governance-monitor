@@ -104,6 +104,8 @@ flowchart LR
 
 อีเมลจะแสดงรายละเอียดสูงสุด 10 รายการเป็นค่าเริ่มต้น เพื่อให้อ่านง่าย โดยเลือกตามลำดับความสำคัญคือ Stage 2, Stage 1, รายการใหม่ และรายการทั่วไปตามลำดับ หากมีมากกว่านั้น ระบบยังนับและเก็บข้อมูลครบทุกแถวใน snapshot และ Workbook แต่จะแจ้งจำนวนที่เหลือพร้อมลิงก์ให้เปิดดูรายละเอียดทั้งหมด ค่าเพดานนี้ปรับได้ด้วย app setting `TG_MAIL_MAX_ITEMS` โดยต้องเป็นจำนวนเต็มตั้งแต่ 1 ขึ้นไป
 
+Workbook เดิมดึงรายการสดจาก Resource Graph จึงไม่มี `first_seen` และอายุของรายการ ส่วน endpoint `governance-status` ที่เพิ่มเข้ามาเป็นช่องทางอ่านสถานะ SLA จาก state จริงของ Function แบบ read-only โดยเปิดเป็นค่าเริ่มต้นสำหรับ production ให้ตั้ง `EnableSlaApi = $true` และเว้น `EntraAppClientId` ว่างได้: `deploy.ps1` จะค้นหาหรือสร้าง App Registration ชื่อ `<NamePrefix>-sla-api` ก่อน deploy Bicep แล้วใช้ Client ID ต่อให้ในรอบเดียว การสร้างต้องใช้สิทธิ์ Microsoft Entra สำหรับสร้าง application; ถ้า tenant ไม่อนุญาตให้สร้างอัตโนมัติ ให้ผู้ดูแลสร้าง App Registration แล้วใส่ Client ID ลง config แทน Easy Auth เปิด anonymous ที่ระดับ App เพื่อไม่กระทบ `/api/run` และ `/api/send`; endpoint `governance-status` ตรวจ Entra principal แยกเอง การเพิ่มตาราง Custom Endpoint ใน Workbook ให้ชี้ไปที่ output `slaApiUrl` ต้องทำหลังจากสร้าง App Registration และทดสอบการส่ง Entra token จาก portal สำเร็จแล้ว
+
 ## Email recipients
 
 | Recipient | Receives | Config key |
@@ -133,7 +135,7 @@ flowchart LR
 | `workbook/` | ไฟล์ JSON ของ Workbook สร้างจาก query ใน `function/tag_governance/queries.py` ด้วย `python scripts/build_workbook.py` (ห้ามแก้ไฟล์ JSON ตรงๆ) |
 | `scripts/preview_email.py` | สร้างไฟล์ HTML ตัวอย่างอีเมลจากข้อมูลจำลอง เพื่อดูหน้าตาโดยไม่ต้อง deploy |
 | `scripts/deploy.ps1` | สคริปต์ deploy ทั้งชุด โดยอ่านค่าจากไฟล์ config |
-| `config/deploy.config.example.psd1` | ไฟล์ config ตัวอย่าง (ไฟล์จริงถูกกำหนดใน `.gitignore`) |
+| `config/deploy.config.example.psd1` | ไฟล์ config ตัวอย่างสำหรับ copy เป็น `config/deploy.config.psd1` (ไฟล์ local ถูก `.gitignore`) |
 | `tests/` | test suite (pytest) ครอบคลุมตรรกะวันส่ง age และการ escalate โดยไม่ต้องใช้ Azure |
 | `docs/DEPLOY.md` | คู่มือการ deploy และการตั้งค่า |
 | `docs/OPERATIONS.md` | คู่มือดูแลระบบหลัง deploy แบบ "อยากทำอะไร ทำแบบนี้" |
