@@ -271,7 +271,7 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
         rows = groups[who]
         title = f"{_pill(who, bg, fg)} <span style='margin-left:4px'>{len(rows)} รายการ</span>"
         parts.append(_section(title, desc, _table(rows, sla_days, new_ids)))
-        txt.append(f"{who} ({len(rows)})" + (f" — {desc}" if desc else "") + "\n" + _text_rows(rows, new_ids))
+        txt.append(f"{who} ({len(rows)})" + (f" - {desc}" if desc else "") + "\n" + _text_rows(rows, new_ids))
 
     if pending:
         names = ", ".join(f"{_e(r['name'])} <span style='color:{_MUTED}'>({'RG' if r['kind'] == 'Resource Group' else 'VM'})</span>" for r in pending)
@@ -280,7 +280,7 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
             f'<b>แก้ tag แล้ว รอ Policy ตรวจซ้ำ ({len(pending)})</b><br>{names}'
             f'<div style="font-size:12px;color:{_MUTED};margin-top:4px">ไม่ต้องทำอะไร ไม่นับรวมในตัวเลขด้านบน · ถ้า Policy ยืนยันว่าผ่าน จะย้ายไป "แก้แล้ว" ในรอบหน้า</div></div>'
         )
-        txt.append(f"แก้ tag แล้ว รอ Policy ตรวจซ้ำ ({len(pending)}) — ไม่ต้องทำอะไร\n" + "\n".join(f"  - {r['name']} ({r['kind']})" for r in pending))
+        txt.append(f"แก้ tag แล้ว รอ Policy ตรวจซ้ำ ({len(pending)}) - ไม่ต้องทำอะไร\n" + "\n".join(f"  - {r['name']} ({r['kind']})" for r in pending))
 
     if resolved:
         names = ", ".join(f"{_e(r['name'])} <span style='color:{_MUTED}'>({'RG' if r['kind'] == 'Resource Group' else 'VM'})</span>" for r in resolved)
@@ -291,7 +291,7 @@ def build_email(items_aged, appeared, resolved, stage1, stage2, today: date, sla
         txt.append(f"แก้แล้วตั้งแต่รอบก่อน ({len(resolved)})\n" + "\n".join(f"  - {r['name']} ({r['kind']})" for r in resolved))
 
     # ---- ท้ายเมล
-    legend = "".join(f"<div style='margin-top:4px'><b>{_e(w)}</b> — {_e(d)}</div>" for w, d, _, _ in WHO_GROUPS)
+    legend = "".join(f"<div style='margin-top:4px'><b>{_e(w)}</b> - {_e(d)}</div>" for w, d, _, _ in WHO_GROUPS)
     parts.append(
         f'<div style="margin-top:32px;padding-top:14px;border-top:1px solid {_LINE};font-size:12px;color:{_MUTED};line-height:1.6">'
         f"{legend}"

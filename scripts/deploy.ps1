@@ -306,7 +306,7 @@ try {
   }
 
   # ---------- 7) ขั้นถัดไป ----------
-  Step 'เสร็จแล้ว — ขั้นตอนถัดไป'
+  Step 'เสร็จแล้ว - ขั้นตอนถัดไป'
   Write-Host @"
 1) ถ้า AssignSubscriptionReader = `$false (หรือสิทธิ์ไม่พอ) ให้ admin รัน:
    az role assignment create --assignee-object-id <principalId> --assignee-principal-type ServicePrincipal --role Reader --scope /subscriptions/$subId

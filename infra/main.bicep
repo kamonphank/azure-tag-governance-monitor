@@ -1,4 +1,4 @@
-// Azure Tag Governance Monitoring — deploy ทุกอย่างลง Resource Group เดียว
+// Azure Tag Governance Monitoring - deploy ทุกอย่างลง Resource Group เดียว
 //   Storage + Function App (Python) + ACS Email + Workbook (+ สิทธิ์ Reader ระดับ subscription)
 targetScope = 'resourceGroup'
 
@@ -187,7 +187,7 @@ resource workbook 'Microsoft.Insights/workbooks@2023-06-01' = {
   tags: tags
   kind: 'shared'
   properties: {
-    displayName: 'Tag Governance — รายการที่ยังไม่ผ่าน'
+    displayName: 'Tag Governance - รายการที่ยังไม่ผ่าน'
     category: 'workbook'
     sourceId: 'Azure Monitor'
     version: '1.0'
