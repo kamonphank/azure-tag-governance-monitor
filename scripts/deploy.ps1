@@ -12,6 +12,7 @@
 
 .PARAMETER ConfigPath  ไฟล์ config (ค่าเริ่มต้น config/deploy.config.psd1)
 .PARAMETER PlanOnly    ดูว่าจะทำอะไรโดยไม่เปลี่ยนแปลงอะไรเลย (what-if)
+.PARAMETER FullPlan    แสดงรายละเอียด property เต็มของ what-if (อาจยาวมากเมื่อ RG มี resource จำนวนมาก)
 .PARAMETER Yes         ข้ามคำถามยืนยัน (สำหรับรันอัตโนมัติ) ยังพิมพ์สรุปให้เห็นเสมอ
 .PARAMETER Part        All (ค่าเริ่มต้น) | Infra = เฉพาะโครงสร้าง | Code = ส่งเฉพาะโค้ด Function (ใช้หลังแก้โค้ด)
 .PARAMETER RestoreFrom โฟลเดอร์ที่ได้จาก teardown.ps1 -BackupTo: คืน state.json และ snapshots ขึ้น Storage ใหม่หลัง deploy (age ของรายการจึงนับต่อ ไม่เริ่มใหม่)
@@ -19,6 +20,7 @@
 
 .EXAMPLE
   ./scripts/deploy.ps1 -PlanOnly          # ดูก่อน ไม่แก้อะไร
+  ./scripts/deploy.ps1 -PlanOnly -FullPlan # ดู property เต็มของ what-if
   ./scripts/deploy.ps1                    # deploy จริง (มีถามยืนยัน)
   ./scripts/deploy.ps1 -Part Code         # แก้โค้ดแล้วส่งซ้ำ
   ./scripts/deploy.ps1
@@ -31,6 +33,7 @@
 param(
   [string]$ConfigPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'config/deploy.config.psd1'),
   [switch]$PlanOnly,
+  [switch]$FullPlan,
   [switch]$Yes,
   [ValidateSet('All', 'Infra', 'Code')] [string]$Part = 'All',
   [string]$RestoreFrom,
@@ -43,6 +46,27 @@ function Step($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
 function Fail($m) { Write-Host "`nERROR: $m" -ForegroundColor Red; exit 1 }
 function Info($m) { Write-Host "    $m" }
 function Warn($m) { Write-Host "    ! $m" -ForegroundColor Yellow }
+
+function Show-PlanSummary($output) {
+  try {
+    $validTypes = @('Create', 'Modify', 'Delete', 'Ignore', 'NoChange', 'Unsupported')
+    $types = @($output -split "`r?`n" |
+      ForEach-Object { "$_".Trim() } |
+      Where-Object { $validTypes -contains $_ })
+    if (-not $types) {
+      Info 'What-if: ไม่พบการเปลี่ยนแปลง'
+      return
+    }
+
+    Info "What-if: พบ $($types.Count) รายการ"
+    foreach ($group in @($types | Group-Object | Sort-Object Name)) {
+      Info "  $($group.Name): $($group.Count) รายการ"
+    }
+    Info 'หากต้องการดูรายละเอียดเต็ม ให้รันซ้ำด้วย -PlanOnly -FullPlan'
+  } catch {
+    Fail "อ่านผล what-if ไม่สำเร็จ: $($_.Exception.Message)"
+  }
+}
 
 # ---------- 1) อ่านและตรวจ config ----------
 Step "อ่าน config: $ConfigPath"
@@ -137,10 +161,20 @@ Step "ตรวจ Resource Group '$rg'"
 $rgExists = ((& az group exists --name $rg -o tsv) -eq 'true')
 $existing = @()
 if ($rgExists) {
-  $existing = @(& az resource list --resource-group $rg --query "[].{n:name,t:type}" -o json | ConvertFrom-Json)
+  $existingJson = & az resource list --resource-group $rg --query "[].{n:name,t:type}" -o json
+  if ($LASTEXITCODE -ne 0) { Fail "อ่านรายการ resource ของ RG '$rg' ไม่สำเร็จ" }
+  $existing = @(($existingJson -join [Environment]::NewLine) | ConvertFrom-Json)
+  if ($existing.Count -eq 1 -and $existing[0].n -is [array]) {
+    $names = @($existing[0].n)
+    $types = @($existing[0].t)
+    $existing = for ($i = 0; $i -lt $names.Count; $i++) {
+      [pscustomobject]@{
+        n = $names[$i]
+        t = if ($types.Count -gt $i) { $types[$i] } else { '' }
+      }
+    }
+  }
   Warn "RG '$rg' มีอยู่แล้วใน subscription นี้ มี $($existing.Count) resource"
-  $existing | Select-Object -First 15 | ForEach-Object { Info "  - $($_.n)   [$($_.t)]" }
-  if ($existing.Count -gt 15) { Info "  ... และอีก $($existing.Count - 15) รายการ" }
   # ห้ามมีระบบนี้ 2 ชุด (NamePrefix ต่างกัน) ใน RG เดียว: Workbook ชนกัน และ teardown ของชุดหนึ่งเคยลบอีกชุดไปด้วย
   $depList = (& az deployment group list --resource-group $rg -o json) | ConvertFrom-Json
   $others = @($depList | Where-Object { $_.name -like 'tag-governance-*' } |
@@ -215,8 +249,31 @@ try {
     if ($Part -eq 'Code') { Info 'ส่วน Code ไม่มี what-if: จะ zip โฟลเดอร์ function/ แล้วส่งขึ้น Function App ที่มีอยู่'; exit 0 }
     if (-not $rgExists) { Info "RG ยังไม่มี จึงยังรัน what-if ไม่ได้ ผลที่คาด: สร้าง RG + resource ทั้งหมดของโปรเจกต์"; exit 0 }
     $paramFile = Write-ParamFile
-    & az deployment group what-if --resource-group $rg --template-file "$root/infra/main.bicep" --parameters "@$paramFile"
-    if ($LASTEXITCODE -ne 0) { Fail 'what-if ไม่สำเร็จ ดูข้อความด้านบน' }
+    if ($FullPlan) {
+      & az deployment group what-if --resource-group $rg --template-file "$root/infra/main.bicep" --parameters "@$paramFile"
+    } else {
+      $planOutput = [IO.Path]::GetTempFileName()
+      $planErrors = [IO.Path]::GetTempFileName()
+      try {
+        & az deployment group what-if --resource-group $rg --template-file "$root/infra/main.bicep" `
+          --parameters "@$paramFile" --result-format ResourceIdOnly --query "changes[].changeType" `
+          --only-show-errors -o tsv `
+          1> $planOutput 2> $planErrors
+        $planExitCode = $LASTEXITCODE
+        if ($planExitCode -eq 0) {
+          $planOutputText = Get-Content -Path $planOutput -Raw
+          if (-not $planOutputText.Trim()) { Fail 'Azure CLI ไม่ส่งผลลัพธ์ changeType กลับมา' }
+          Show-PlanSummary $planOutputText
+        } else {
+          $details = Get-Content -Path $planErrors -Raw
+          if ($details.Trim()) { Write-Host $details }
+        }
+      } finally {
+        Remove-Item $planOutput, $planErrors -Force -ErrorAction SilentlyContinue
+      }
+    }
+    if ($FullPlan -and $LASTEXITCODE -ne 0) { Fail 'what-if ไม่สำเร็จ ดูข้อความด้านบน' }
+    if (-not $FullPlan -and $planExitCode -ne 0) { Fail 'what-if ไม่สำเร็จ ดูข้อความด้านบน' }
     exit 0
   }
 

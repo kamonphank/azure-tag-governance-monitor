@@ -87,7 +87,13 @@ Copy-Item config/deploy.config.example.psd1 config/deploy.config.psd1
 ./scripts/deploy.ps1 -PlanOnly
 ```
 
-สคริปต์ตรวจ config แสดงสรุปสิ่งที่จะทำ และบอกว่า Resource Group มีอยู่แล้วหรือไม่ โดยไม่เปลี่ยนแปลงสิ่งใด หากมี error สคริปต์ระบุจุดที่ผิด
+สคริปต์ตรวจ config แสดงสรุปสิ่งที่จะทำ และบอกว่า Resource Group มีอยู่แล้วหรือไม่โดยแสดงเฉพาะจำนวน resource (ไม่พิมพ์ชื่อทีละรายการ) จากนั้นจะแสดงผล what-if แบบสรุปจำนวนตามประเภทการเปลี่ยนแปลง จึงเหมาะกับ Resource Group ที่มี resource จำนวนมาก (เช่น production 300+ รายการ) หากมี error สคริปต์ระบุจุดที่ผิด
+
+หากต้องการดู property เต็มของทุก resource (ซึ่งอาจยาวมาก โดยเฉพาะ Workbook) ให้ใช้
+
+```powershell
+./scripts/deploy.ps1 -PlanOnly -FullPlan
+```
 
 ### Step 6: Deploy
 
@@ -180,7 +186,8 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 | Option | Description |
 |---|---|
 | `-ConfigPath <path>` | ใช้ไฟล์ config อื่น (ค่าเริ่มต้น `config/deploy.config.psd1`) |
-| `-PlanOnly` | แสดงสรุป และรัน what-if หาก Resource Group มีอยู่แล้ว โดยไม่เปลี่ยนแปลงสิ่งใด |
+| `-PlanOnly` | แสดงสรุป และรัน what-if แบบย่อ (สรุปจำนวนเท่านั้น) หาก Resource Group มีอยู่แล้ว โดยไม่เปลี่ยนแปลงสิ่งใด |
+| `-FullPlan` | ใช้ร่วมกับ `-PlanOnly` เพื่อแสดง property เต็มของ what-if แทนผลแบบย่อ |
 | `-Yes` | ข้ามขั้นตอนการยืนยัน เหมาะกับการรันอัตโนมัติ |
 | `-Part Infra` / `-Part Code` | deploy เฉพาะโครงสร้างและ App settings / ส่งเฉพาะโค้ด Function |
 | `-Set @{ Key = Value }` | ทับค่าใน config จากบรรทัดคำสั่งชั่วคราว ไม่ถูกบันทึกลงไฟล์ ค่าที่ต้องคงอยู่ควรอยู่ในไฟล์ config |
