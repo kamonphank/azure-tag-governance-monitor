@@ -258,6 +258,7 @@ endpoint นี้ส่งอีเมลด้วยข้อมูลล่�
 | สคริปต์แจ้งว่า `az login` อยู่คนละ subscription | ใช้ `az account set --subscription <id>` |
 | Bicep compile ไม่ผ่าน หรือ crash | Bicep เก่าเกินไป รัน `az bicep upgrade` |
 | `AuthorizationFailed` ขณะ deploy | ผู้ deploy ไม่มีสิทธิ์สร้าง role assignment หรือ resource ให้ผู้มีสิทธิ์ระดับ Owner/User Access Administrator ช่วย แล้วรันใหม่ |
+| deploy แจ้ง `A vault with the same name already exists in deleted state` | Key Vault ชื่อเดิมค้างอยู่ใน soft-delete ให้ตรวจว่าเป็นของระบบนี้ แล้ว purge ด้วยคำสั่งที่สคริปต์แสดง หรือเปลี่ยน `NamePrefix` เป็นค่าใหม่ ห้าม purge vault ของระบบอื่น |
 | `TG_ACS_CONNECTION_STRING` ขึ้นเครื่องหมายแดง | สิทธิ์ยังไม่แพร่กระจาย รอ 2-3 นาที แล้วรีสตาร์ต Function App |
 | ชื่อ resource ซ้ำ | เปลี่ยน `NamePrefix` |
 | deploy ใหม่ชนชื่อ Key Vault หรือ Log Analytics | ของเก่าค้างใน soft-delete รัน `teardown.ps1` ซึ่ง purge ให้ หรือเปลี่ยน `NamePrefix` |

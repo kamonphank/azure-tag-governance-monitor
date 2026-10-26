@@ -47,6 +47,23 @@ function Fail($m) { Write-Host "`nERROR: $m" -ForegroundColor Red; exit 1 }
 function Info($m) { Write-Host "    $m" }
 function Warn($m) { Write-Host "    ! $m" -ForegroundColor Yellow }
 
+function Check-DeletedKeyVault {
+  if (-not $rgExists) { return }
+  $deleted = @(& az keyvault list-deleted --query "[].{name:name,location:properties.location}" -o json 2>$null)
+  if ($LASTEXITCODE -ne 0 -or -not $deleted) { return }
+  $deletedJson = ($deleted -join [Environment]::NewLine) | ConvertFrom-Json
+  $matches = @($deletedJson | Where-Object { "$($_.name)" -like "$prefix`kv*" })
+  if ($matches.Count) {
+    $names = ($matches | ForEach-Object { $_.name }) -join ', '
+    Fail ("พบ Key Vault ของ prefix '$prefix' ค้างอยู่ใน soft-delete: $names`n" +
+      "    ถ้าเป็นของระบบนี้และไม่ต้องการกู้คืน ให้ purge ก่อน:`n" +
+      "    `$deletedKv = '$($matches[0].name)'`n" +
+      "    `$location = az keyvault list-deleted --query `"[?name=='`$deletedKv'].properties.location | [0]`" -o tsv`n" +
+      "    az keyvault purge --name `$deletedKv --location `$location`n" +
+      "    หรือเปลี่ยน NamePrefix ใน config เพื่อใช้ชื่อใหม่")
+  }
+}
+
 function Show-PlanSummary($output) {
   try {
     $validTypes = @('Create', 'Modify', 'Delete', 'Ignore', 'NoChange', 'Unsupported')
@@ -206,6 +223,8 @@ Info "Policy assignment ที่ตรวจ: $(Cfg 'PolicyAssignmentName' 'rg-
 Info "Endpoint ทดสอบ /api/run:   $(if ($testEndpoint) { 'เปิด (อย่าลืมปิดหลังทดสอบ)' } else { 'ปิด' })"
 Info "ส่งเมลทันที /api/send:     $(if ($manualSend) { 'เปิด' } else { 'ปิด' })"
 if ($assignReader) { Info "จะมอบสิทธิ์ Reader ให้ Function (managed identity) ที่ระดับ subscription $subId" }
+
+Check-DeletedKeyVault
 
 # ---------- เตรียมไฟล์พารามิเตอร์ (ไม่ใส่ค่าลงบรรทัดคำสั่ง) ----------
 $paramFile = $null
