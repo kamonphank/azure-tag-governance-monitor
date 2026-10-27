@@ -42,3 +42,4 @@ backup/
 
 # ตัวอย่างอีเมลจาก scripts/preview_email.py
 email-preview.*
+deploy.config.psd1

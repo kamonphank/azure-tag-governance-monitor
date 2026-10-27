@@ -157,6 +157,7 @@ config เป็น PowerShell data file (`.psd1`) ซึ่งเป็นข�
 | `MailTo` | Yes | - | ผู้รับหลักของอีเมลสรุปทุกฉบับ ต้องเป็นอีเมลจริง | `TG_MAIL_TO` |
 | `Tags` | No | `@{}` | tag ที่ใส่ให้ Resource Group ที่สร้างใหม่และทุก resource ของโปรเจกต์ (Storage, Function App, Key Vault ฯลฯ) ควรครบตามที่ Policy บังคับ Resource Group ที่มีอยู่แล้วไม่ถูกแก้ tag (`ResourceGroupTags` คือชื่อเดิม ยังใช้ได้) | - |
 | `NamePrefix` | No | `tagGov` | คำนำหน้าชื่อ resource (ตัวอักษรหรือตัวเลข 1 ถึง 8 ตัว) | - |
+| `ExistingStorageAccountName` | No | ว่าง | ระบุ Storage Account ที่มีอยู่ใน Resource Group เดียวกันเพื่อใช้แทนการสร้างใหม่; เมื่อระบุ ระบบไม่ deploy resource หรือ policy ใดลงใน Storage Account เดิม และใช้เพียง connection string สำหรับ Function กับ container `tag-governance` | - |
 | `PolicyAssignmentName` | No | `rg-tag-governance-audit` | ชื่อ Policy assignment (ไม่ใช่ ID เต็ม) ตรวจสอบด้วย `az policy assignment list --query "[].name" -o tsv` | `TG_ASSIGNMENT_NAME` |
 | `ScanSubscriptionIds` | No | `@()` | จำกัด subscription ที่ scan ว่างคือทุก subscription ที่ Function อ่านได้ | `TG_SUBSCRIPTION_IDS` |
 | `RgNameRegex` | No | ว่าง | กรองเฉพาะ Resource Group ที่ชื่อตรง regex โดยปกติไม่ต้องใช้ | `TG_RG_NAME_REGEX` |

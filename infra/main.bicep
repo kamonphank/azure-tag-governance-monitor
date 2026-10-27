@@ -12,6 +12,9 @@ param tags object = {}
 @maxLength(8)
 param namePrefix string = 'tagGov'
 
+@description('ชื่อ Storage Account ที่มีอยู่ใน Resource Group นี้ (เว้นว่างเพื่อสร้างใหม่)')
+param existingStorageAccountName string = ''
+
 @description('ผู้รับเมลสรุปรายสัปดาห์ (To) คั่นหลายคนด้วยคอมมา')
 param mailTo string
 
@@ -67,7 +70,7 @@ param snapshotRetentionDays int = 365
 param runFromPackage string = ''
 
 var uniq = uniqueString(resourceGroup().id)
-var storageName = toLower('st${take(namePrefix, 8)}${take(uniq, 12)}')
+var storageName = empty(existingStorageAccountName) ? toLower('st${take(namePrefix, 8)}${take(uniq, 12)}') : existingStorageAccountName
 var funcName = '${namePrefix}-func-${take(uniq, 6)}'
 var planName = '${namePrefix}-plan'
 var lawName = '${namePrefix}-law'
@@ -76,7 +79,7 @@ var kvName = '${take(namePrefix, 8)}kv${take(uniq, 10)}'
 var workbookGuid = guid(resourceGroup().id, 'tag-governance-workbook')
 
 // ---------------- Storage (ทั้งสำหรับ Function และเก็บ snapshot/state) ----------------
-resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = if (empty(existingStorageAccountName)) {
   name: storageName
   location: location
   tags: tags
@@ -90,7 +93,7 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   }
 }
 // soft delete: ถ้า state.json ถูกลบหรือเขียนทับผิด กู้คืนได้ภายใน 14 วัน (ถ้า state หาย อายุของทุกรายการจะเริ่มนับใหม่)
-resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = if (empty(existingStorageAccountName)) {
   parent: storage
   name: 'default'
   properties: {
@@ -99,7 +102,7 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   }
 }
 // ลบ snapshot ที่เก่ากว่า snapshotRetentionDays (เฉพาะโฟลเดอร์ snapshots/ ใน container tag-governance)
-resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
+resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = if (empty(existingStorageAccountName)) {
   parent: storage
   name: 'default'
   properties: {
@@ -118,7 +121,11 @@ resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05
     }
   }
 }
-var storageConn = 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+resource existingStorage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
+  name: storageName
+}
+var storageKey = empty(existingStorageAccountName) ? storage!.listKeys().keys[0].value : existingStorage!.listKeys().keys[0].value
+var storageConn = 'DefaultEndpointsProtocol=https;AccountName=${storageName};AccountKey=${storageKey};EndpointSuffix=${environment().suffixes.storage}'
 
 // ---------------- Logs ----------------
 resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {

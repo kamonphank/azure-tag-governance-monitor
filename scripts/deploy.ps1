@@ -102,7 +102,7 @@ if ($RestoreFrom -and -not (Test-Path (Join-Path $RestoreFrom 'state.json'))) {
   $RestoreFrom = ''
 }
 
-$known = @('SubscriptionId', 'ResourceGroup', 'Location', 'Tags', 'ResourceGroupTags', 'NamePrefix', 'PolicyAssignmentName',
+$known = @('SubscriptionId', 'ResourceGroup', 'Location', 'Tags', 'ResourceGroupTags', 'NamePrefix', 'ExistingStorageAccountName', 'PolicyAssignmentName',
   'ScanSubscriptionIds', 'RgNameRegex', 'SlaDays', 'MailEnabled', 'MailTo', 'MailCc', 'MailCcEscalation',
   'MailMaxItems', 'CreateAcsEmail', 'ExistingAcsSender', 'AssignSubscriptionReader', 'EnableTestEndpoint', 'EnableManualSend'
   )
@@ -121,6 +121,7 @@ if ($rg -notmatch '^[\w.()-]{1,90}$' -or $rg.EndsWith('.')) { $errors.Add("Resou
 $location = "$(Cfg 'Location' '')"
 if (-not $location) { $errors.Add('ต้องระบุ Location เช่น southeastasia') }
 $prefix = "$(Cfg 'NamePrefix' 'tagGov')"
+$existingStorageName = "$(Cfg 'ExistingStorageAccountName' '')".Trim()
 if ($prefix -notmatch '^[A-Za-z0-9]{1,8}$') { $errors.Add("NamePrefix ต้องเป็นตัวอักษร/ตัวเลข 1-8 ตัว: '$prefix'") }
 $mailTo = AsList (Cfg 'MailTo' @())
 $mailCc = AsList (Cfg 'MailCc' @())
@@ -192,6 +193,13 @@ if ($rgExists) {
     }
   }
   Warn "RG '$rg' มีอยู่แล้วใน subscription นี้ มี $($existing.Count) resource"
+  if ($existingStorageName) {
+    $storageCheck = & az storage account show --name $existingStorageName --resource-group $rg --query name -o tsv 2>$null
+    if ($LASTEXITCODE -ne 0 -or $storageCheck -ne $existingStorageName) {
+      Fail "ไม่พบ Storage Account '$existingStorageName' ใน Resource Group '$rg' (หรือไม่มีสิทธิ์อ่าน)"
+    }
+    Info "จะใช้ Storage Account เดิม: $existingStorageName (ไม่แก้ tags, retention หรือ lifecycle policy ของบัญชีนี้)"
+  }
   # ห้ามมีระบบนี้ 2 ชุด (NamePrefix ต่างกัน) ใน RG เดียว: Workbook ชนกัน และ teardown ของชุดหนึ่งเคยลบอีกชุดไปด้วย
   $depList = (& az deployment group list --resource-group $rg -o json) | ConvertFrom-Json
   $others = @($depList | Where-Object { $_.name -like 'tag-governance-*' } |
@@ -241,6 +249,7 @@ function Write-ParamFile {
   $p = [ordered]@{
     mailTo = ($mailTo -join ','); mailCc = ($mailCc -join ','); mailCcEscalation = ($mailCcEsc -join ',')
     namePrefix = $prefix; assignmentName = "$(Cfg 'PolicyAssignmentName' 'rg-tag-governance-audit')"
+    existingStorageAccountName = $existingStorageName
     subscriptionIds = ($scanIds -join ','); rgNameRegex = $rgRegex; slaDays = $sla; mailMaxItems = $mailMaxItems
     mailEnabled = $mailEnabled; createAcs = $createAcs; assignSubscriptionReader = $assignReader
     enableTestEndpoint = $testEndpoint; enableManualSend = $manualSend
@@ -373,7 +382,7 @@ try {
   # ---------- คืน state จาก backup ----------
   if ($RestoreFrom) {
     Step "คืน state จาก $RestoreFrom"
-    $stName = & az storage account list --resource-group $rg --query "[?starts_with(name,'st$($prefix.ToLower())')].name | [0]" -o tsv
+    $stName = if ($existingStorageName) { $existingStorageName } else { & az storage account list --resource-group $rg --query "[?starts_with(name,'st$($prefix.ToLower())')].name | [0]" -o tsv }
     if (-not $stName) { Fail 'ไม่พบ Storage account ใน RG (ต้อง deploy Infra ก่อน)' }
     $env:AZURE_STORAGE_KEY = (& az storage account keys list --account-name $stName --resource-group $rg --query "[0].value" -o tsv)
     try {

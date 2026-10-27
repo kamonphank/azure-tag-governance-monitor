@@ -22,6 +22,7 @@
     # SlaDays                  = 14       # จำนวนวันที่ค้างก่อนเข้า Stage 1
     # MailMaxItems             = 10       # จำนวนรายการสูงสุดที่แสดงรายละเอียดในอีเมล
     # NamePrefix               = 'tagGov' # คำนำหน้าชื่อ resource (1-8 ตัวอักษร/ตัวเลข)
+    # ExistingStorageAccountName = ''     # ใส่ชื่อ Storage Account ที่มีอยู่ใน RG เพื่อใช้แทนการสร้างใหม่; ไม่แก้ tags/retention/lifecycle ของบัญชีนั้น
     # PolicyAssignmentName     = 'rg-tag-governance-audit'
     # ScanSubscriptionIds      = @()      # ว่าง = ทุก subscription ที่ Function อ่านได้
     # RgNameRegex              = ''       # โดยปกติไม่ต้องใช้
