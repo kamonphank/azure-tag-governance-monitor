@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "function"))
 
-from tag_governance.queries import CHANGE_TABLES, WHO_ASK, WHO_FIND, WHO_FIX, WHO_PENDING, all_query, changes_query  # noqa: E402
+from tag_governance.queries import CHANGE_TABLES, SUBSCRIPTION_ID, WHO_ASK, WHO_FIND, WHO_FIX, WHO_PENDING, all_query, changes_query  # noqa: E402
 
 ASSIGNMENT = "rg-tag-governance-audit"
 OUT = ROOT / "workbook" / "tag-governance.workbook.json"
@@ -31,7 +31,7 @@ def _arg(query: str, title: str = "", resource_type: str = "microsoft.resourcegr
         "query": query,
         "queryType": 1,
         "resourceType": resource_type,
-        "crossComponentResources": ["{Subscription}"],
+        "crossComponentResources": [f"/subscriptions/{SUBSCRIPTION_ID}"],
     }
     if title:
         content["title"] = title
@@ -83,7 +83,7 @@ def _changes_param(name: str, table: str) -> dict:
         "name": name,
         "type": 1,
         "query": query,
-        "crossComponentResources": ["{Subscription}"],
+        "crossComponentResources": [f"/subscriptions/{SUBSCRIPTION_ID}"],
         "isHiddenWhenLocked": True,
         "queryType": 1,
         "resourceType": "microsoft.resourcegraph/resources",
@@ -132,10 +132,12 @@ def build() -> dict:
     # ตรวจ tag ปัจจุบันจาก Resource Graph โดยตรง เพื่อให้พบ resource ที่ Policy มองว่าผ่านด้วย
     casing_q = '''resourcecontainers
 | where type =~ "microsoft.resources/subscriptions/resourcegroups"
-| project azure_id = id, resource_name = name, rg_name = name, resource_kind = "Resource Group", tags
-| union (resources
-| where type =~ "microsoft.compute/virtualmachines"
-| project azure_id = id, resource_name = name, rg_name = tostring(split(id, "/")[4]), resource_kind = "Virtual Machine", tags)
+    | where subscriptionId == "{SUBSCRIPTION_ID}"
+    | project azure_id = id, resource_name = name, rg_name = name, resource_kind = "Resource Group", tags
+    | union (resources
+    | where type =~ "microsoft.compute/virtualmachines"
+    | where subscriptionId == "{SUBSCRIPTION_ID}"
+    | project azure_id = id, resource_name = name, rg_name = tostring(split(id, "/")[4]), resource_kind = "Virtual Machine", tags)
 | extend tag_bag = todynamic(tags)
 | mv-expand tag_key = bag_keys(tag_bag)
 | extend tag_key = tostring(tag_key), expected_key = tolower(tostring(tag_key))
@@ -143,7 +145,7 @@ def build() -> dict:
 | extend tag_value = tostring(tag_bag[tag_key])
 | extend rg_col = iff(resource_kind == "Resource Group", "", rg_name)
 | order by resource_kind asc, resource_name asc, expected_key asc
-| project azure_id, resource_kind, rg_col, resource_name, tag_key, expected_key, tag_value'''
+| project azure_id, resource_kind, rg_col, resource_name, tag_key, expected_key, tag_value'''.replace("{SUBSCRIPTION_ID}", SUBSCRIPTION_ID)
 
     def static_param(name: str, label: str, values: list[str]) -> dict:
         return {
@@ -169,32 +171,6 @@ def build() -> dict:
                 f"Resource Group และ VM ที่ยังไม่ผ่าน policy `{ASSIGNMENT}` · ดึงสดจาก Azure Policy ทุกครั้งที่เปิด · "
                 f"รายการที่เพิ่งแก้ tag จะขึ้นว่า **{WHO_PENDING}** จนกว่า Policy จะตรวจใหม่",
             ),
-            {
-                "type": 9,
-                "content": {
-                    "version": "KqlParameterItem/1.0",
-                    "parameters": [
-                        {
-                            "id": "00ffa1ff-37ea-4cc9-b053-f651df60248d",
-                            "version": "KqlParameterItem/1.0",
-                            "name": "Subscription",
-                            "label": "Subscription",
-                            "type": 6,
-                            "isRequired": True,
-                            "multiSelect": True,
-                            "quote": "'",
-                            "delimiter": ",",
-                            "typeSettings": {"additionalResourceOptions": ["value::all"], "includeAll": True},
-                            "timeContext": {"durationMs": 86400000},
-                            "defaultValue": "value::all",
-                        }
-                    ],
-                    "style": "pills",
-                    "queryType": 0,
-                    "resourceType": "microsoft.resourcegraph/resources",
-                },
-                "name": "parameters - sub",
-            },
             {
                 "type": 9,
                 "content": {

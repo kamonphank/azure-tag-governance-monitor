@@ -202,7 +202,7 @@ resource workbook 'Microsoft.Insights/workbooks@2023-06-01' = {
     category: 'workbook'
     sourceId: 'Azure Monitor'
     version: '1.0'
-    serializedData: loadTextContent('../workbook/tag-governance.workbook.json')
+    serializedData: replace(loadTextContent('../workbook/tag-governance.workbook.json'), '__DEPLOYMENT_SUBSCRIPTION_ID__', subscription().subscriptionId)
   }
 }
 var workbookUrl = empty(workbookUrlOverride) ? 'https://portal.azure.com/#blade/AppInsightsExtension/UsageNotebookBlade/ComponentId/Azure%20Monitor/ConfigurationId/${uriComponent(workbook.id)}/Type/workbook/WorkbookTemplateName/' : workbookUrlOverride

@@ -19,9 +19,11 @@ WHO_FIX = "Cloud team แก้ได้"
 WHO_ASK = "ถาม owner"
 WHO_FIND = "หา owner ก่อน"
 WHO_PENDING = "รอ Policy ตรวจซ้ำ"
+SUBSCRIPTION_ID = "__DEPLOYMENT_SUBSCRIPTION_ID__"
 
 _BASE = """policyresources
 | where type == "microsoft.policyinsights/policystates"
+| where subscriptionId == "{subscription_id}"
 | where tolower(tostring(properties.policyAssignmentId)) endswith "/providers/microsoft.authorization/policyassignments/{assignment}"
 | where tostring(properties.complianceState) == "NonCompliant"
 """
@@ -77,7 +79,7 @@ _COLS = "resource_id, azure_id, resource_kind, resource_name, rg_name, cause, de
 
 def _body(assignment: str, resource_type: str, lookup: str, kind: str) -> str:
     return (
-        _BASE.format(assignment=_check_assignment(assignment).lower())
+        _BASE.format(assignment=_check_assignment(assignment).lower(), subscription_id=SUBSCRIPTION_ID)
         + f"""| where tostring(properties.resourceType) =~ "{resource_type}"
 | extend resource_id = tolower(tostring(properties.resourceId)), policy = tostring(properties.policyDefinitionReferenceId)
 | summarize failed_policies = make_set(policy), evaluated_at = max(todatetime(properties.timestamp)) by resource_id
@@ -101,6 +103,7 @@ def changes_query(table: str) -> str:
     if table not in CHANGE_TABLES:
         raise ValueError(table)
     return f"""{table}
+| where subscriptionId == "{SUBSCRIPTION_ID}"
 | where tostring(properties.changes) contains "tags"
 | summarize tags_changed_at = max(todatetime(properties.changeAttributes.timestamp)) by resource_id = tolower(tostring(properties.targetResourceId))
 """
@@ -128,7 +131,7 @@ def rg_query(assignment: str) -> str:
     return _body(
         assignment,
         "microsoft.resources/subscriptions/resourcegroups",
-        'resourcecontainers | where type =~ "microsoft.resources/subscriptions/resourcegroups" | project resource_id = tolower(id), azure_id = id, resource_name = name, rg_name = name, tags',
+        f'resourcecontainers | where subscriptionId == "{SUBSCRIPTION_ID}" | where type =~ "microsoft.resources/subscriptions/resourcegroups" | project resource_id = tolower(id), azure_id = id, resource_name = name, rg_name = name, tags',
         "Resource Group",
     )
 
@@ -138,7 +141,7 @@ def vm_query(assignment: str) -> str:
     return _body(
         assignment,
         "microsoft.compute/virtualmachines",
-        'resources | where type =~ "microsoft.compute/virtualmachines" | project resource_id = tolower(id), azure_id = id, resource_name = name, rg_name = tostring(split(id, "/")[4]), tags',
+        f'resources | where subscriptionId == "{SUBSCRIPTION_ID}" | where type =~ "microsoft.compute/virtualmachines" | project resource_id = tolower(id), azure_id = id, resource_name = name, rg_name = tostring(split(id, "/")[4]), tags',
         "Virtual Machine",
     )
 
