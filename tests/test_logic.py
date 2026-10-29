@@ -345,6 +345,15 @@ def test_workbook_query_stays_within_resource_graph_limits():
         assert q.count("| join") <= 3 and q.count("mv-expand") <= 3, it["name"]
 
 
+def test_casing_query_scopes_rg_and_vm_to_governed_rg_name_format():
+    import json
+
+    wb = json.loads((Path(__file__).resolve().parent.parent / "workbook" / "tag-governance.workbook.json").read_text(encoding="utf-8"))
+    casing = next(it["content"]["query"] for it in wb["items"] if it["name"] == "query - casing")
+    assert 'toupper(name) matches regex @"^[DTP][0-9]{3}RG[A-Z]{2}[0-9]{2}$"' in casing
+    assert 'toupper(tostring(split(id, "/")[4])) matches regex @"^[DTP][0-9]{3}RG[A-Z]{2}[0-9]{2}$"' in casing
+
+
 def test_mark_pending_only_when_tags_changed_after_policy_scan():
     items = [
         {**item("a"), "evaluated_at": "2026-10-16T07:00:00Z"},

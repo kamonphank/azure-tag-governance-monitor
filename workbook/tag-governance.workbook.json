@@ -302,7 +302,7 @@
     {
       "type": 1,
       "content": {
-        "json": "## Tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน\nตรวจจาก tag ปัจจุบันโดยตรง รวม resource ที่ Azure Policy อาจรายงานว่าผ่าน ให้แก้ key เป็นตัวพิมพ์เล็กตามมาตรฐาน เช่น `Owner` → `owner`"
+        "json": "## Tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน\nตรวจจาก tag ปัจจุบันโดยตรงเฉพาะ RG และ VM ใน RG ที่ชื่อเป็นรูปแบบ `D###RG??##`, `T###RG??##` หรือ `P###RG??##` รวม resource ที่ Azure Policy อาจรายงานว่าผ่าน ให้แก้ key เป็นตัวพิมพ์เล็กตามมาตรฐาน เช่น `Owner` → `owner`"
       },
       "name": "text - casing"
     },
@@ -310,7 +310,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "resourcecontainers\n| where type =~ \"microsoft.resources/subscriptions/resourcegroups\"\n    | where subscriptionId == \"__DEPLOYMENT_SUBSCRIPTION_ID__\"\n    | project azure_id = id, resource_name = name, rg_name = name, resource_kind = \"Resource Group\", tags\n    | union (resources\n    | where type =~ \"microsoft.compute/virtualmachines\"\n    | where subscriptionId == \"__DEPLOYMENT_SUBSCRIPTION_ID__\"\n    | project azure_id = id, resource_name = name, rg_name = tostring(split(id, \"/\")[4]), resource_kind = \"Virtual Machine\", tags)\n| extend tag_bag = todynamic(tags)\n| mv-expand tag_key = bag_keys(tag_bag)\n| extend tag_key = tostring(tag_key), expected_key = tolower(tostring(tag_key))\n| where expected_key in (\"owner\", \"department\", \"environment\", \"project\") and tag_key != expected_key\n| extend tag_value = tostring(tag_bag[tag_key])\n| extend rg_col = iff(resource_kind == \"Resource Group\", \"\", rg_name)\n| order by resource_kind asc, resource_name asc, expected_key asc\n| project azure_id, resource_kind, rg_col, resource_name, tag_key, expected_key, tag_value",
+        "query": "resourcecontainers\n| where type =~ \"microsoft.resources/subscriptions/resourcegroups\"\n    | where subscriptionId == \"__DEPLOYMENT_SUBSCRIPTION_ID__\"\n    | where toupper(name) matches regex @\"^[DTP][0-9]{3}RG[A-Z]{2}[0-9]{2}$\"\n    | project azure_id = id, resource_name = name, rg_name = name, resource_kind = \"Resource Group\", tags\n    | union (resources\n    | where type =~ \"microsoft.compute/virtualmachines\"\n    | where subscriptionId == \"__DEPLOYMENT_SUBSCRIPTION_ID__\"\n    | where toupper(tostring(split(id, \"/\")[4])) matches regex @\"^[DTP][0-9]{3}RG[A-Z]{2}[0-9]{2}$\"\n    | project azure_id = id, resource_name = name, rg_name = tostring(split(id, \"/\")[4]), resource_kind = \"Virtual Machine\", tags)\n| extend tag_bag = todynamic(tags)\n| mv-expand tag_key = bag_keys(tag_bag)\n| extend tag_key = tostring(tag_key), expected_key = tolower(tostring(tag_key))\n| where expected_key in (\"owner\", \"department\", \"environment\", \"project\") and tag_key != expected_key\n| extend tag_value = tostring(tag_bag[tag_key])\n| extend rg_col = iff(resource_kind == \"Resource Group\", \"\", rg_name)\n| order by resource_kind asc, resource_name asc, expected_key asc\n| project azure_id, resource_kind, rg_col, resource_name, tag_key, expected_key, tag_value",
         "queryType": 1,
         "resourceType": "microsoft.resourcegraph/resources",
         "crossComponentResources": [

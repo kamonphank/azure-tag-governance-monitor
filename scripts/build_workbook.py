@@ -23,6 +23,7 @@ WHO_COLORS = [(WHO_FIX, "green"), (WHO_ASK, "orange"), (WHO_FIND, "redBright")]
 WHO_ORDER = f'case(who == "{WHO_FIX}", 1, who == "{WHO_ASK}", 2, who == "{WHO_FIND}", 3, 4)'
 KIND_RG = 'resource_kind == "Resource Group"'
 KIND_VM = 'resource_kind == "Virtual Machine"'
+RG_NAME_PATTERN = r"^[DTP][0-9]{3}RG[A-Z]{2}[0-9]{2}$"
 
 
 def _arg(query: str, title: str = "", resource_type: str = "microsoft.resourcegraph/resources", **extra) -> dict:
@@ -133,10 +134,12 @@ def build() -> dict:
     casing_q = '''resourcecontainers
 | where type =~ "microsoft.resources/subscriptions/resourcegroups"
     | where subscriptionId == "{SUBSCRIPTION_ID}"
+    | where toupper(name) matches regex @"{RG_NAME_PATTERN}"
     | project azure_id = id, resource_name = name, rg_name = name, resource_kind = "Resource Group", tags
     | union (resources
     | where type =~ "microsoft.compute/virtualmachines"
     | where subscriptionId == "{SUBSCRIPTION_ID}"
+    | where toupper(tostring(split(id, "/")[4])) matches regex @"{RG_NAME_PATTERN}"
     | project azure_id = id, resource_name = name, rg_name = tostring(split(id, "/")[4]), resource_kind = "Virtual Machine", tags)
 | extend tag_bag = todynamic(tags)
 | mv-expand tag_key = bag_keys(tag_bag)
@@ -145,7 +148,9 @@ def build() -> dict:
 | extend tag_value = tostring(tag_bag[tag_key])
 | extend rg_col = iff(resource_kind == "Resource Group", "", rg_name)
 | order by resource_kind asc, resource_name asc, expected_key asc
-| project azure_id, resource_kind, rg_col, resource_name, tag_key, expected_key, tag_value'''.replace("{SUBSCRIPTION_ID}", SUBSCRIPTION_ID)
+| project azure_id, resource_kind, rg_col, resource_name, tag_key, expected_key, tag_value'''.replace(
+        "{SUBSCRIPTION_ID}", SUBSCRIPTION_ID
+    ).replace("{RG_NAME_PATTERN}", RG_NAME_PATTERN)
 
     def static_param(name: str, label: str, values: list[str]) -> dict:
         return {
@@ -259,7 +264,8 @@ def build() -> dict:
             _text(
                 "text - casing",
                 "## Tag key ที่ตัวพิมพ์ไม่ตรงมาตรฐาน\n"
-                "ตรวจจาก tag ปัจจุบันโดยตรง รวม resource ที่ Azure Policy อาจรายงานว่าผ่าน "
+                "ตรวจจาก tag ปัจจุบันโดยตรงเฉพาะ RG และ VM ใน RG ที่ชื่อเป็นรูปแบบ "
+                "`D###RG??##`, `T###RG??##` หรือ `P###RG??##` รวม resource ที่ Azure Policy อาจรายงานว่าผ่าน "
                 "ให้แก้ key เป็นตัวพิมพ์เล็กตามมาตรฐาน เช่น `Owner` → `owner`",
             ),
             {
