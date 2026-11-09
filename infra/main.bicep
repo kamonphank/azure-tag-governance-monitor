@@ -241,6 +241,7 @@ resource func 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
         { name: 'ENABLE_ORYX_BUILD', value: 'true' }
         { name: 'TG_ASSIGNMENT_NAME', value: assignmentName }
+        { name: 'TG_DEPLOYMENT_SUBSCRIPTION_ID', value: subscription().subscriptionId }
         { name: 'TG_SUBSCRIPTION_IDS', value: subscriptionIds }
         { name: 'TG_SLA_DAYS', value: string(slaDays) }
         { name: 'TG_MAIL_MAX_ITEMS', value: string(mailMaxItems) }

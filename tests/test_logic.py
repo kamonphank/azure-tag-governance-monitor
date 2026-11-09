@@ -240,6 +240,14 @@ def test_filter_scope():
     assert [i["rg_name"] for i in filter_scope(its, r"^[pd]\d{3}rg")] == ["p706rgsi01", "D711RGSI01"]
 
 
+def test_resource_graph_queries_use_deployment_subscription(monkeypatch):
+    monkeypatch.setenv("TG_DEPLOYMENT_SUBSCRIPTION_ID", "49fd2876-71fe-4a32-b81d-4ec0a2f33c98")
+    monkeypatch.setattr(queries, "SUBSCRIPTION_ID", "49fd2876-71fe-4a32-b81d-4ec0a2f33c98")
+    query = queries.rg_query("rg-tag-governance-audit")
+    assert 'where subscriptionId == "49fd2876-71fe-4a32-b81d-4ec0a2f33c98"' in query
+    assert "__DEPLOYMENT_SUBSCRIPTION_ID__" not in query
+
+
 def test_http_endpoint_disabled_by_default(monkeypatch):
     monkeypatch.delenv("TG_HTTP_ENABLED", raising=False)
     assert runner.http_enabled() is False

@@ -12,6 +12,7 @@
                                  (ไม่นับรวมในตัวเลข ไม่ escalate ไม่อยู่ในรายชื่อ owner)"""
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime, timezone
 
@@ -19,7 +20,7 @@ WHO_FIX = "Cloud team แก้ได้"
 WHO_ASK = "ถาม owner"
 WHO_FIND = "หา owner ก่อน"
 WHO_PENDING = "รอ Policy ตรวจซ้ำ"
-SUBSCRIPTION_ID = "__DEPLOYMENT_SUBSCRIPTION_ID__"
+SUBSCRIPTION_ID = os.environ.get("TG_DEPLOYMENT_SUBSCRIPTION_ID", "__DEPLOYMENT_SUBSCRIPTION_ID__")
 
 _BASE = """policyresources
 | where type == "microsoft.policyinsights/policystates"
